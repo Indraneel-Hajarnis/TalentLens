@@ -68,16 +68,16 @@ export default function Upload() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[80vh] w-full animate-[fadeIn_0.5s_ease-out]">
+    <div className="flex flex-col items-center justify-center min-h-[80vh] w-full animate-fadeIn">
       <div className="w-full max-w-3xl flex flex-col gap-6">
         
         {/* Job Description */}
-        <div className="flex flex-col gap-2">
-          <label className="text-md font-bold text-white mb-1 drop-shadow-sm">
+        <div className="flex flex-col gap-2 stagger-item">
+          <label className="text-md font-bold text-white mb-1 drop-shadow-sm animate-slideInLeft">
             Job Description (Optional)
           </label>
           <textarea
-            className="w-full bg-[#0d1624] border border-[#0ab5d0]/30 rounded-lg p-4 text-[#cbd5e1] focus:outline-none focus:border-[#0ab5d0] transition-colors resize-none h-40 placeholder-[#64748b] text-sm"
+            className="form-input w-full bg-[#0d1624] border border-[#0ab5d0]/30 rounded-lg p-4 text-[#cbd5e1] focus:outline-none focus:border-[#0ab5d0] resize-none h-40 placeholder-[#64748b] text-sm"
             placeholder="Paste the job description here for targeted analysis..."
             value={jobDesc}
             onChange={(e) => setJobDesc(e.target.value)}
@@ -86,7 +86,7 @@ export default function Upload() {
 
         {/* Upload Zone */}
         <div
-          className={`border border-[#0ab5d0]/30 rounded-lg p-10 flex flex-col items-center justify-center gap-4 transition-all duration-300 ${isHovering ? "border-[#0ab5d0] bg-[#0ab5d0]/10" : "bg-[#0d1624]"}`}
+          className={`upload-zone border border-[#0ab5d0]/30 rounded-lg p-10 flex flex-col items-center justify-center gap-4 ${isHovering ? "drag-over border-[#0ab5d0] bg-[#0ab5d0]/10" : "bg-[#0d1624]"} stagger-item`}
           onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
           onDragLeave={() => setIsHovering(false)}
           onDrop={handleDrop}
@@ -99,9 +99,9 @@ export default function Upload() {
             accept=".pdf"
             onChange={(e) => setFile(e.target.files[0])}
           />
-          <div className="text-3xl mb-2 opacity-80">📄</div>
+          <div className={`text-3xl mb-2 transition-all duration-300 ${file ? 'animate-bounce text-[#10b981]' : 'opacity-80'}`}>? </div>
           {file ? (
-            <p className="text-lg font-medium text-[#10b981]">{file.name}</p>
+            <p className="text-lg font-medium text-[#10b981] animate-slideInRight">{file.name}</p>
           ) : (
             <p className="text-md font-medium text-[#cbd5e1]">
               Select a resume PDF to upload.
@@ -113,13 +113,18 @@ export default function Upload() {
         <button
           onClick={handleScan}
           disabled={!file || isScanning}
-          className={`w-full py-4 rounded-lg font-bold text-lg transition-all duration-300 ${
-            isScanning ? "bg-[#334155] text-gray-400 cursor-not-allowed" : 
+          className={`btn-primary w-full py-4 rounded-lg font-bold text-lg stagger-item ${
+            isScanning ? "bg-[#334155] text-gray-400 cursor-not-allowed animate-pulse" : 
             !file ? "bg-[#1e293b] text-gray-500 cursor-not-allowed" : 
-            "bg-[#0ab5d0] text-white hover:bg-[#009bba] shadow-[0_0_15px_rgba(10,181,208,0.3)] cursor-pointer"
+            "bg-[#0ab5d0] text-white hover:bg-[#009bba] shadow-[0_0_15px_rgba(10,181,208,0.3)] cursor-pointer hover-lift"
           }`}
         >
-          {isScanning ? "Scanning Matrix..." : "Analyze Resume"}
+          {isScanning ? (
+            <span className="flex items-center justify-center gap-2">
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent"></div>
+              Scanning Matrix...
+            </span>
+          ) : "Analyze Resume"}
         </button>
       </div>
     </div>

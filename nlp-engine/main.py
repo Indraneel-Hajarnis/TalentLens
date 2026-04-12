@@ -1,71 +1,164 @@
-from fastapi import FastAPI, UploadFile, File, Form
+"""
+main.py — TalentLens NLP Engine (FastAPI)
+==========================================
+Exposes the Best-First Search + heuristic ATS analysis via REST endpoints.
+"""
+
+import io
+import logging
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
-import pdfplumber
-import json
+from pydantic import BaseModel
 
-from analyzer.similarity import calculate_similarity
-from analyzer.heuristics import evaluate_resume
+try:
+    import pdfplumber
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
 
-app = FastAPI()
+from analyzer.search import best_first_search
+from analyzer.heuristics import composite_heuristic, extract_skills
+from analyzer.similarity import compute_similarity_score
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("talentlens")
+
+app = FastAPI(
+    title="TalentLens NLP Engine",
+    description="Best-First Search powered ATS resume analyzer",
+    version="2.0.0",
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust in production
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-import io
 
-async def extract_text_from_pdf(file: UploadFile) -> str:
-    text = ""
-    file_bytes = await file.read()
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-    return text
 
-@app.post("/score")
-async def score_resume(
-    resume: UploadFile = File(...),
-    jobDescription: Optional[str] = Form(None)
-):
-    # 1. Parse PDF
-    text = await extract_text_from_pdf(resume)
-    
-    # 2. Similarity Models (40% Weight for Keyword Match)
-    similarity_score = 0
-    keyword_details = {}
-    if jobDescription:
-        similarity_score, keyword_details = calculate_similarity(text, jobDescription)
-    else:
-        similarity_score = 0 # No Job Description provided
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
 
-    # 3. Heuristics Models (Skills, Experience formatting, Action Verbs, Structure)
-    heuristic_score, h_details = evaluate_resume(text, jobDescription)
+class TextAnalysisRequest(BaseModel):
+    resume_text: str
+    jd_text: str = ""
 
-    # 4. Final Score Assembly (Based on README weights)
-    # 40% Keyword, 20% Skills, 15% Experience, 10% Formatting, 10% Action Verbs, 5% Structure
-    # Similarity handles Keyword (40)
-    # Heuristics handle the rest (60)
-    
-    # We will compute a 0-100 score in total
 
-    final_score = int(similarity_score * 40 + heuristic_score * 60)
-    
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def extract_pdf_text(file_bytes: bytes) -> str:
+    """Extract plain text from PDF bytes using pdfplumber."""
+    if not PDF_AVAILABLE:
+        raise HTTPException(status_code=500, detail="pdfplumber not installed.")
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            pages = [page.extract_text() or "" for page in pdf.pages]
+        return "\n".join(pages).strip()
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"PDF extraction failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@app.get("/")
+def root():
     return {
-        "totalScore": final_score,
-        "parsedText": text[:500], # return a snippet
-        "scoreDetails": {
-            "similarityMatch": similarity_score,
-            "heuristicEvaluation": h_details,
-            "keywords": keyword_details
-        }
+        "service":   "TalentLens NLP Engine",
+        "algorithm": "Best-First Search (Greedy Heuristic)",
+        "status":    "running",
     }
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "pdf_support": PDF_AVAILABLE}
+
+
+@app.post("/analyze")
+def analyze_text(req: TextAnalysisRequest):
+    """
+    Full ATS analysis via Best-First Search + composite heuristic.
+    Accepts plain text (used when frontend extracts PDF text client-side).
+    """
+    if not req.resume_text.strip():
+        raise HTTPException(status_code=400, detail="resume_text is required.")
+
+    logger.info("Running Best-First Search analysis...")
+
+    # 1. Best-First Search (core algorithm)
+    search_result = best_first_search(req.resume_text, req.jd_text)
+
+    # 2. Cosine similarity
+    sim = compute_similarity_score(req.resume_text, req.jd_text or req.resume_text)
+
+    return {
+        "success": True,
+        "search":  search_result,
+        "similarity": sim,
+        "score":   search_result.get("composite_score", {}).get("final_score", 0),
+    }
+
+
+@app.post("/analyze/pdf")
+async def analyze_pdf(
+    resume: UploadFile = File(...),
+    jd_text: str = Form(default=""),
+):
+    """
+    Upload a PDF resume; server extracts text and runs Best-First Search.
+    """
+    if not resume.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    file_bytes = await resume.read()
+    resume_text = extract_pdf_text(file_bytes)
+
+    if not resume_text:
+        raise HTTPException(status_code=422, detail="Could not extract text from PDF.")
+
+    logger.info(f"PDF extracted: {len(resume_text)} chars. Running search...")
+
+    search_result = best_first_search(resume_text, jd_text)
+    sim = compute_similarity_score(resume_text, jd_text or resume_text)
+
+    return {
+        "success":     True,
+        "resume_text": resume_text[:500] + "..." if len(resume_text) > 500 else resume_text,
+        "search":      search_result,
+        "similarity":  sim,
+        "score":       search_result.get("composite_score", {}).get("final_score", 0),
+    }
+
+
+@app.post("/skills")
+def extract_skills_endpoint(req: TextAnalysisRequest):
+    """Quick endpoint to extract and compare skills only."""
+    resume_skills = extract_skills(req.resume_text)
+    jd_skills = extract_skills(req.jd_text) if req.jd_text else []
+    matched = list(set(resume_skills) & set(jd_skills))
+    missing = list(set(jd_skills) - set(resume_skills))
+    return {
+        "resume_skills": resume_skills,
+        "jd_skills":     jd_skills,
+        "matched":       matched,
+        "missing":       missing,
+        "match_rate":    round(len(matched) / max(len(jd_skills), 1) * 100, 1),
+    }
+
+
+@app.post("/heuristic")
+def heuristic_only(req: TextAnalysisRequest):
+    """Returns only the composite heuristic breakdown (no search)."""
+    result = composite_heuristic(req.resume_text, req.jd_text)
+    return result
+
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
