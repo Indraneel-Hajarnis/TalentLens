@@ -1,6 +1,5 @@
 import { Routes, Route, Link, useLocation } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
-import Upload from "./pages/Upload";
 import Auth from "./pages/Auth";
 import Sidebar from "./components/Sidebar";
 import { HistoryProvider } from "./context/HistoryContext";
@@ -55,7 +54,7 @@ function App() {
           {/* Main Content */}
           <main className="flex-1 p-4 flex flex-col max-w-6xl w-full mx-auto">
             <Routes>
-              <Route path="/" element={<Upload />} />
+              <Route path="/" element={<Dashboard />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/auth" element={<Auth />} />
             </Routes>

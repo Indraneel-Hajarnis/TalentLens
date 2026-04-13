@@ -52,7 +52,7 @@ app.post("/api/upload", requireAuth, upload.single("resume"), async (req, res) =
 
     let nlpResponse;
     try {
-      nlpResponse = await fetch("http://localhost:8000/score", {
+      nlpResponse = await fetch("http://localhost:8000/analyze/pdf", {
         method: "POST",
         body: formData,
         signal: AbortSignal.timeout(30000), // 30s timeout
@@ -73,16 +73,30 @@ app.post("/api/upload", requireAuth, upload.single("resume"), async (req, res) =
       });
     }
     
-    const nlpData = await nlpResponse.json();
+    let nlpData;
+    try {
+      const responseText = await nlpResponse.text();
+      console.log("NLP Engine Raw Response:", responseText);
+      if (!responseText.trim()) {
+        throw new Error("Empty response from NLP engine");
+      }
+      nlpData = JSON.parse(responseText);
+    } catch (parseErr) {
+      console.error("Failed to parse NLP engine response:", parseErr);
+      throw new Error(`NLP engine returned invalid response: ${parseErr.message}`);
+    }
 
-    // 2. Apply Contact Info Penalty
-    let finalScore = nlpData.totalScore;
-    const hi = nlpData.scoreDetails.heuristicEvaluation;
-    
-    // Deduct points for missing contact info
-    if (!hi.emailFound) finalScore -= 5;
-    if (!hi.phoneFound) finalScore -= 5;
-    if (!hi.contactInfo?.linkedin) finalScore -= 2;
+    // 2. Extract score and details from new NLP engine format
+    let finalScore = nlpData.score || 0;
+    const searchResult = nlpData.search || {};
+    const compositeScore = searchResult.composite_score || {};
+    const details = compositeScore.details || {};
+
+    // Apply Contact Info Penalty based on new format
+    const formatting = details.formatting || {};
+    if (!formatting.has_email) finalScore -= 5;
+    if (!formatting.has_phone) finalScore -= 5;
+    if (!formatting.has_linkedin) finalScore -= 2;
 
     // Clamp score to [0, 100]
     finalScore = Math.max(0, Math.min(100, finalScore));
@@ -93,23 +107,56 @@ app.post("/api/upload", requireAuth, upload.single("resume"), async (req, res) =
       id: resumeId,
       userId: req.user.id,
       filename: req.file.originalname,
-      parsedText: nlpData.parsedText,
+      parsedText: nlpData.resume_text || "",
       fileData: req.file.buffer, // Store the PDF buffer
       contentType: req.file.mimetype,
       createdAt: new Date(),
     });
+
+    // Create score details in the expected format for frontend compatibility
+    const scoreDetails = {
+      heuristicEvaluation: {
+        emailFound: formatting.has_email || false,
+        phoneFound: formatting.has_phone || false,
+        contactInfo: {
+          email: formatting.has_email ? "found" : null,
+          phone: formatting.has_phone ? "found" : null,
+          linkedin: formatting.has_linkedin ? "found" : null,
+        },
+        keywordStuffingPenalty: details.stuffing?.stuffed || false,
+        skillsDetected: details.skills?.matched || [],
+        missingSkills: details.skills?.missing || [],
+        sectionsFound: details.structure?.found_sections || [],
+        actionVerbsFound: details.action_verbs?.count || 0,
+        quantifiedAchievements: details.achievements?.achievement_count || 0,
+        yearsOfExperience: 0,
+        educationLevel: "unknown",
+        breakdown: {
+          skills: (details.skills?.score || 0) * 100,
+          structure: (details.structure?.score || 0) * 100,
+          experience: (details.experience?.score || 0) * 100,
+          action_verbs: (details.action_verbs?.score || 0) * 100,
+          formatting: (details.formatting?.score || 0) * 100
+        }
+      },
+      similarityMatch: nlpData.similarity?.cosine_score || 0,
+      keywords: {
+        matching: details.keyword?.matched_keywords || [],
+        missing: details.keyword?.missing_keywords || []
+      }
+    };
 
     const scoreId = crypto.randomUUID();
     await db.insert(atsScores).values({
       id: scoreId,
       resumeId: resumeId,
       jobDescription: jobDescription || "",
-      scoreDetailsJson: JSON.stringify(nlpData.scoreDetails),
+      scoreDetailsJson: JSON.stringify(scoreDetails),
       totalScore: finalScore, // Use adjusted score
       createdAt: new Date(),
     });
 
-    res.json({ success: true, score: { ...nlpData, totalScore: finalScore, id: resumeId } });
+    res.json({ success: true, score: { ...nlpData, totalScore: finalScore, id: resumeId, scoreDetails } });
   } catch (err) {
     console.error("Critical Backend Error:", err);
     res.status(500).json({ error: "Internal server error", details: err.message });
