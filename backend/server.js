@@ -156,7 +156,18 @@ app.post("/api/upload", requireAuth, upload.single("resume"), async (req, res) =
       createdAt: new Date(),
     });
 
-    res.json({ success: true, score: { ...nlpData, totalScore: finalScore, id: resumeId, scoreDetails } });
+    const matchedSkills = details.skills?.matched || [];
+    const totalSkills = (details.skills?.matched?.length || 0) + (details.skills?.missing?.length || 0);
+    const similarityScore = nlpData.similarity?.cosine_score || 0;
+    const experienceScore = (details.experience?.score || 0) * 100;
+
+    const explanationText = `The resume scored ${finalScore}% based on heuristic evaluation:
+    - ${matchedSkills.length} out of ${totalSkills} required skills were matched
+    - Keyword similarity score was ${similarityScore.toFixed(2)}
+    - Experience contribution was ${experienceScore.toFixed(1)}%
+    - Formatting and structural factors influenced the final score`;
+
+    res.json({ success: true, score: { ...nlpData, totalScore: finalScore, id: resumeId, scoreDetails, explanationText } });
   } catch (err) {
     console.error("Critical Backend Error:", err);
     res.status(500).json({ error: "Internal server error", details: err.message });
