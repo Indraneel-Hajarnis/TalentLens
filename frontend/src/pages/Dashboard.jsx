@@ -596,7 +596,39 @@ export default function Dashboard() {
             </div>
 
             {/* Tab Content */}
-            {tab === "score"   && <BreakdownCard breakdown={composite.breakdown} />}
+            {tab === "score" && (
+              <>
+                <BreakdownCard breakdown={composite.breakdown} />
+
+                {result?.explanationText && (
+                  <div style={{
+                    background: "rgba(15,15,25,.95)",
+                    border: "1px solid rgba(139,92,246,.3)",
+                    borderRadius: 16,
+                    padding: 20,
+                    marginTop: 20
+                  }}>
+                    <h3 style={{
+                      color: "#a78bfa",
+                      marginBottom: 10,
+                      fontSize: 15,
+                      fontWeight: 700
+                  }}>
+                    AI Explanation
+                  </h3>
+
+                   <p style={{
+                    whiteSpace: "pre-line",
+                    color: "rgba(255,255,255,.7)",
+                    fontSize: 13,
+                    lineHeight: 1.6
+                  }}>
+                    {result.explanationText}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
             {tab === "search"  && (
               <SearchTracePanel
                 trace={search.search_trace}

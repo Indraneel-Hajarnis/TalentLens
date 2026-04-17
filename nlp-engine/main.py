@@ -97,11 +97,26 @@ def analyze_text(req: TextAnalysisRequest):
     # 2. Cosine similarity
     sim = compute_similarity_score(req.resume_text, req.jd_text or req.resume_text)
 
+    matched_skills = search_result.get("best_match", {}).get("matched_skills", [])
+    missing_skills = search_result.get("best_match", {}).get("missing_skills", [])
+
+    total_skills = len(matched_skills) + len(missing_skills)
+    similarity_score = sim.get("cosine_score", 0)
+
+    final_score = search_result.get("composite_score", {}).get("final_score", 0)
+
+    explanation_text = f"""The resume scored {final_score}% based on heuristic evaluation:
+    - {len(matched_skills)} out of {total_skills} required skills were matched
+    - Keyword similarity score was {similarity_score:.2f}
+    - Best-First Search was used to prioritize skill matching
+    - Composite scoring combined multiple factors for final evaluation"""
+
     return {
         "success": True,
         "search":  search_result,
         "similarity": sim,
         "score":   search_result.get("composite_score", {}).get("final_score", 0),
+        "explanationText": explanation_text 
     }
 
 
