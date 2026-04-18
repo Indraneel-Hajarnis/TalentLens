@@ -7,9 +7,16 @@ export default function Sidebar() {
   const location = useLocation();
 
   const sortedHistory = [...history].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-  // Try to find the currently active scan from the location state or filename
-  const activeFilename = location.state?.result?.filename || location.state?.filename;
+  
+  // Filter out duplicates with the same filename, keeping only the most recent scan
+  const seenFilenames = new Set();
+  const uniqueHistory = sortedHistory.filter(item => {
+    if (seenFilenames.has(item.filename)) return false;
+    seenFilenames.add(item.filename);
+    return true;
+  });
+  // Use the unique resume ID to determine the active scan (prevents multi-selection on same filename)
+  const activeId = location.state?.result?.id || location.state?.id;
 
   const handleSelectScan = (item) => {
     if (!item.scores || item.scores.length === 0) return;
@@ -43,13 +50,13 @@ export default function Sidebar() {
         <div className="flex flex-col gap-2">
           {loadingHistory ? (
             <div className="p-4 text-xs text-[#64748b] italic text-center">Loading history...</div>
-          ) : sortedHistory.length > 0 ? (
-            sortedHistory.map((item) => (
+          ) : uniqueHistory.length > 0 ? (
+            uniqueHistory.map((item) => (
               <button
                 key={item.id}
                 onClick={() => handleSelectScan(item)}
                 className={`text-left p-3 rounded-xl border transition-all group relative overflow-hidden ${
-                  activeFilename === item.filename 
+                  activeId === item.id 
                   ? "bg-[#0ab5d0]/10 border-[#0ab5d0] text-white" 
                   : "bg-[#0d1624] border-transparent text-[#94a3b8] hover:border-[#1e293b] hover:text-white hover:bg-[#131b26]"
                 }`}
@@ -58,7 +65,7 @@ export default function Sidebar() {
                   <p className="text-xs font-bold truncate pr-4">{item.filename}</p>
                   <p className="text-[10px] opacity-60 mt-1">{new Date(item.createdAt).toLocaleDateString()}</p>
                 </div>
-                {activeFilename === item.filename && (
+                {activeId === item.id && (
                    <div className="absolute right-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[#0ab5d0] shadow-[0_0_8px_rgba(10,181,208,0.8)]"></div>
                 )}
               </button>

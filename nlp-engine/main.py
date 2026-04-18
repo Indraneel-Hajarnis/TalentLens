@@ -17,7 +17,7 @@ except ImportError:
     PDF_AVAILABLE = False
 
 from analyzer.search import best_first_search
-from analyzer.heuristics import composite_heuristic, extract_skills
+from analyzer.heuristics import composite_heuristic, extract_skills, education_score
 from analyzer.similarity import compute_similarity_score
 
 logging.basicConfig(level=logging.INFO)
@@ -102,21 +102,34 @@ def analyze_text(req: TextAnalysisRequest):
 
     total_skills = len(matched_skills) + len(missing_skills)
     similarity_score = sim.get("cosine_score", 0)
-
     final_score = search_result.get("composite_score", {}).get("final_score", 0)
 
-    explanation_text = f"""The resume scored {final_score}% based on heuristic evaluation:
-    - {len(matched_skills)} out of {total_skills} required skills were matched
-    - Keyword similarity score was {similarity_score:.2f}
-    - Best-First Search was used to prioritize skill matching
-    - Composite scoring combined multiple factors for final evaluation"""
+    breakdown = search_result.get("composite_score", {}).get("breakdown", {})
+
+    breakdown_lines = []
+    for key, val in breakdown.items():
+        label = key.replace("_", " ").title()
+        score_pct = val.get("score", 0)
+        weight_pct = round(val.get("weight", 0) * 100)
+        breakdown_lines.append(f"    • {label}: {score_pct:.1f}% (weight {weight_pct}%)")
+
+    explanation_text = f"""The resume scored {final_score}% based on multi-factor heuristic evaluation:
+
+  Skills: {len(matched_skills)} of {total_skills} JD skills matched
+  Keyword Similarity: {similarity_score:.2f}
+  Best-First Search explored {search_result.get('stats', {}).get('nodes_explored', 0)} nodes
+
+  Score Breakdown:\n""" + "\n".join(breakdown_lines)
+
+    if missing_skills:
+        explanation_text += f"\n\n  Top Missing Skills: {', '.join(missing_skills[:5])}"
 
     return {
         "success": True,
         "search":  search_result,
         "similarity": sim,
         "score":   search_result.get("composite_score", {}).get("final_score", 0),
-        "explanationText": explanation_text 
+        "explanationText": explanation_text
     }
 
 

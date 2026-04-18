@@ -408,6 +408,7 @@ export default function Dashboard() {
   const av        = details?.action_verbs ?? {};
   const qa        = details?.achievements ?? {};
   const st        = details?.structure ?? {};
+  const ed        = details?.education ?? {};
 
   const TABS = [
     { id: "score",    label: "Score" },

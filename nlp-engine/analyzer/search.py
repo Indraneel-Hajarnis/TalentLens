@@ -66,7 +66,7 @@ class SearchNode:
 def best_first_search(
     resume_text: str,
     jd_text: str,
-    max_depth: int = 8,
+    max_depth: int = 12,
     beam_width: int | None = None,
 ) -> dict[str, Any]:
     """
@@ -91,13 +91,15 @@ def best_first_search(
 
     # --- Setup ---
     resume_skills = extract_skills(resume_text)
-    jd_skills     = set(extract_skills(jd_text))
+    jd_skills     = set(extract_skills(jd_text)) if jd_text.strip() else set()
 
     if not resume_skills:
         return _empty_result("No recognizable skills found in resume.")
 
+    # When no JD provided: treat all resume skills as the target set
+    # (we search over the resume's own skill landscape)
     if not jd_skills:
-        return _empty_result("No recognizable skills found in job description.")
+        jd_skills = set(resume_skills)   # self-comparison mode
 
     # Sort candidate skills by JD relevance (skills in JD first)
     candidates = sorted(
@@ -223,11 +225,11 @@ def _heuristic(
     skill_coverage = len(matched & jd_skills) / len(jd_skills)
 
     # Component 2: keyword match from full resume
-    kw = keyword_match_score(resume_text, jd_text)
+    kw = keyword_match_score(resume_text, jd_text) if jd_text.strip() else {"score": 0.5}
     kw_score = kw["score"]
 
     # Component 3: cosine similarity
-    sim = compute_similarity_score(resume_text, jd_text)
+    sim = compute_similarity_score(resume_text, jd_text if jd_text.strip() else resume_text)
     cos_score = sim["cosine_score"]
 
     return round(0.50 * skill_coverage + 0.30 * kw_score + 0.20 * cos_score, 4)
