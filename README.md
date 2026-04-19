@@ -1,72 +1,102 @@
 # TalentLens 🎯
 
-**Heuristic-Powered ATS Resume Analyzer using Best-First Search Algorithm**
+**Agentic AI-Powered ATS Resume Analyzer using Best-First Search Algorithm**
 
-A comprehensive resume analysis system that helps job seekers optimize their resumes for Applicant Tracking Systems (ATS) using advanced AI techniques and heuristic evaluation.
+A comprehensive, state-of-the-art resume analysis system designed to help job seekers optimize their resumes for Applicant Tracking Systems (ATS). TalentLens uses advanced heuristic-guided execution and robust deterministic NLP processing to reverse-engineer how top-tier ATS platforms score resumes.
 
-## ✨ Features
+## ✨ Key Features
 
-- 🧠 **Best-First Search Algorithm**: Intelligent resume analysis using heuristic-guided search
-- 📊 **Detailed Scoring**: Comprehensive ATS scoring with breakdown by skills, structure, and formatting
-- 🔍 **Keyword Analysis**: Job description matching and keyword gap analysis
-- 📄 **PDF Processing**: Automatic PDF text extraction and analysis
-- 💾 **History Management**: Track and manage previous resume analyses
-- 🔐 **User Authentication**: Secure user accounts with session management
-- 🎨 **Modern UI**: Beautiful, responsive interface with real-time analysis feedback
+- 🧠 **Agentic Best-First Search**: Explores the combinatorial space of resume improvements using a custom `h(n)` heuristic function, guaranteeing optimal ATS gap identification without LLM hallucinations.
+- 📊 **Detailed Composite Scoring**: Multi-axis scoring (Skills, Experience relevance, Action Verbs, Formatting, Structure, and Quantified Achievements).
+- 🔍 **Advanced Skill Taxonomy & Extraction**: Matches against a continuously updated dictionary of 100+ complex technical concepts (NLP, DevOps, Data Science, Web3, etc.), falling back to a contextual keyword-floor to prevent false negatives.
+- 📄 **Robust PDF Processing**: Normalizes raw PDF extract artifacts (handling invisible spaces, zero-width joiners, and bullet-point artifacts) to ensure 100% regex fidelity.
+- 🎨 **Premium Glassmorphic UI**: Beautiful, interactive frontend built with dynamic Framer Motion animations. Features a **rich interactive SVG Heuristics Chart** that maps the AI's step-by-step search trace.
+- 📈 **Actionable Intelligence**: Generates a structured analysis report with clear strengths, critical gaps, and numbered, tactical recommendations for the user.
+- 💾 **History & Auth**: Secure session management (Better Auth) and persistent tracking of all previous resume analyses via an SQLite backend.
 
 ## 🏗️ Architecture
 
-TalentLens follows a modern microservices architecture:
+TalentLens successfully decouples traditional web architecture from heavy AI computation:
 
+```text
+┌─────────────────────────┐    ┌─────────────────────────┐    ┌─────────────────────────┐
+│     Frontend (Vite)     │    │    Backend (Node.js)    │    │    NLP Engine (Python)  │
+│ - React + Tailwind CSS  │◄──►│ - Express.js + SQLite   │◄──►│ - FastAPI + pdfplumber  │
+│ - Framer Motion         │    │ - Better Auth (Sessions)│    │ - Best-First Search     │
+│ - Interactive SVG Charts│    │ - History Management    │    │ - Heuristics Pipeline   │
+│ Port: 5173              │    │ Port: 3000              │    │ Port: 8000              │
+└─────────────────────────┘    └─────────────────────────┘    └─────────────────────────┘
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │    Backend      │    │   NLP Engine    │
-│   (React)       │◄──►│   (Express)     │◄──►│   (FastAPI)     │
-│   Port: 5173    │    │   Port: 3000    │    │   Port: 8000    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
 
-### Components
+## 🧠 The NLP Engine Mechanics
 
-- **Frontend**: React + Vite with Tailwind CSS
-- **Backend**: Express.js with Better Auth and SQLite
-- **NLP Engine**: FastAPI with advanced text analysis algorithms
+The Python-based NLP engine goes far beyond simple keyword matching:
+
+1. **PDF Normalization**: Pre-processes raw PDF text to collapse whitespace, convert em-dashes, and eliminate non-breaking artifacts so that word-boundary (`\b`) searches work flawlessly.
+2. **Taxonomy & Keyword Hybrid Matching**: Matches explicitly known taxonomy concepts first, and dynamically falls back to finding exact string intersections for domain-specific jargon that hasn't been mapped yet.
+3. **Continuous Tense Verbs**: Detects over 100 action verbs across multiple tenses (past, present, progressive) ensuring modern resume-speak ("Developing", "Spearhead") isn't incorrectly penalized.
+4. **Best-First Search Trace**: Visually returns the `h(n)` evaluation of the candidate resume as the algorithm functionally attempts to "add missing skills" node by node to see the mathematical delta of improvements. 
+## 🔍 Deep Dive: The AI & Algorithms
+
+TalentLens doesn't just look for words; it mathematically structures a resume against an ideal state.
+
+### 1. Heuristic-Based Best-First Search
+Instead of a simple diff, we treat resume optimization as a pathfinding problem:
+- **State Space**: A node represents a version of the resume with specific skills added.
+- **Initial State**: The user's original uploaded resume text.
+- **Goal State**: A theoretical perfect match with the Job Description.
+- **Goal Test**: Are all critical JD concepts present, and is the overall ATS format sound?
+- **Heuristic Function $h(n)$**: At every step, the algorithm generates "child nodes" by injecting a missing JD skill into the text. It computes $h(n)$—the estimated "closeness" to a perfect ATS score—for each child. The algorithm expands the node with the highest $h(n)$ first.
+- **Pruning**: To prevent combinatorial explosion (which would freeze the UI), the Search Engine limits exploration to a maximum depth of 15 additions and aggressively trims the frontier based on the strictly calculated heuristic value.
+
+### 2. Skill Matching & Taxonomy Insights
+- **The Dictionary**: We use a curated flat array of 100+ nested technology concepts (e.g., distinguishing between "Python" and "PyTorch", or "CI/CD" and "Docker"). 
+- **Unique Overlap**: Rather than raw word counts (which can artificially inflate scores if a candidate repeats "React" 10 times), the engine uses unique vocabulary overlap.
+- **The Keyword-Floor Hybrid**: If a heavily specialized Job Description uses sparse jargon outside our dictionary, the skill engine checks literal JD unigram density. It blends the Taxonomy Match Authority with a Keyword Supplement so that specialized resumes never falsely bottom out at 0%.
+
+### 3. How the Final Score is Calculated
+The final $h(n)$ composite score is a strict weighted sum designed to mirror enterprise ATS platforms. When a Job Description is provided, the weights are exactly:
+
+- **Skill Match (30%)**: Authoritative matching of hard skills from our taxonomy.
+- **Keyword Match (28%)**: Contextual overlap of significant tokens (≥ 4 characters) to catch non-taxonomy jargon.
+- **Experience Relevance (15%)**: Measures the density of extracted skills located specifically within the "Experience" section of the document.
+- **Formatting (8%)**: Verifies presence of email, phone, and standard structural markers.
+- **Action Verbs (7%)**: Checks for a diversity of achievement-oriented verbs (e.g., "Led", "Optimized", "Spearheading"). Finding 8+ distinct verbs guarantees a full score.
+- **Achievements (4%)**: Scans for numbers, percentages, and dollar amounts indicating quantified impact.
+- **Structure (4%)**: Ensures critical sections (Summary, Experience, Education, Skills) are explicitly identifiable.
+- **Education (4%)**: Checks for degree markers (B.S., B.Tech, Master's, etc.).
+
+*Total:* 100%.
 
 ## 📁 Project Structure
 
-```
+```text
 TalentLens/
 ├── backend/                    # Express.js API server
 │   ├── src/
-│   │   ├── db.js             # Database schema and connection
-│   │   └── auth.js           # Authentication configuration
-│   ├── server.js              # Main backend server
-│   ├── drizzle.config.js       # Database configuration
-│   └── package.json          # Backend dependencies
-├── frontend/                  # React frontend application
+│   │   ├── db.js               # Drizzle ORM + SQLite connection
+│   │   └── auth.js             # Better Auth configuration
+│   ├── server.js              
+│   ├── drizzle.config.js       
+│   └── package.json            
+├── frontend/                   # React frontend application
 │   ├── src/
-│   │   ├── components/        # Reusable React components
-│   │   │   └── Sidebar.jsx
-│   │   ├── context/          # React context providers
-│   │   │   └── HistoryContext.jsx
-│   │   ├── pages/            # Main application pages
-│   │   │   ├── Dashboard.jsx  # Main analysis interface
-│   │   │   ├── Auth.jsx      # Authentication page
-│   │   │   └── Upload.jsx    # Legacy upload component
-│   │   ├── App.jsx           # Main App component
-│   │   └── main.jsx         # Application entry point
-│   ├── public/               # Static assets
-│   ├── vite.config.js        # Vite configuration with proxy
-│   └── package.json          # Frontend dependencies
-├── nlp-engine/              # Python NLP processing engine
-│   ├── analyzer/             # Core analysis algorithms
-│   │   ├── heuristics.py     # Heuristic evaluation functions
-│   │   ├── search.py         # Best-First Search implementation
-│   │   └── similarity.py    # Text similarity calculations
-│   ├── main.py              # FastAPI server and endpoints
-│   └── requirements.txt     # Python dependencies
-├── .gitignore              # Git ignore rules
-└── README.md               # This file
+│   │   ├── components/         # Reusable glassmorphic UI components
+│   │   ├── context/            # React Context (Auth, History)
+│   │   ├── pages/              
+│   │   │   └── Dashboard.jsx   # Interactive SVG chart & Analysis Report
+│   │   ├── App.jsx             
+│   │   └── index.css           # Vanilla CSS + Glassmorphism design tokens
+│   ├── vite.config.js          
+│   └── package.json            
+├── nlp-engine/                 # Python AI / NLP Processing Engine
+│   ├── analyzer/               
+│   │   ├── heuristics.py       # h(n) scoring functions & NLP normalizer
+│   │   ├── search.py           # The Best-First Search algorithm
+│   │   └── similarity.py       # Tokenization & Jaccard similarity bounds
+│   ├── main.py                 # FastAPI server & Structured Report generator
+│   └── requirements.txt        
+└── README.md               
 ```
 
 ## 🚀 Getting Started
@@ -75,8 +105,8 @@ TalentLens/
 
 - **Node.js** (v18 or higher)
 - **Python** (v3.8 or higher)
-- **npm** or **yarn** for package management
-- **pip** for Python packages
+- **npm** or **yarn**
+- **pip**
 
 ### Installation
 
@@ -106,7 +136,7 @@ TalentLens/
 
 ### Environment Setup
 
-Create environment variables for the backend:
+Create an environment variable file for the backend:
 
 ```bash
 # In backend/.env
@@ -116,7 +146,7 @@ DATABASE_URL=sqlite:./sqlite.db
 
 ### Running the Application
 
-You need to run all three services simultaneously:
+For the application to function correctly, run all three services simultaneously in separate terminals:
 
 1. **Start the NLP Engine** (Port 8000)
    ```bash
@@ -136,203 +166,55 @@ You need to run all three services simultaneously:
    npm run dev
    ```
 
-4. **Open your browser**
-   ```
+4. **Open your browser interactively**
+   ```text
    http://localhost:5173
    ```
 
 ## 📖 Usage Guide
 
-### 1. User Authentication
+1. **Authenticate**: Create a secure session using the auth screen via Better Auth.
+2. **Submit Content**: Upload a `.pdf` resume file and (optionally) paste a target Job Description. 
+3. **Execution**: Watch the Best-First Search algorithm evaluate the document in real time.
+4. **Insights**: 
+   - Hover over the interactive **Heuristic Value History SVG Chart** to inspect how your score evolved during the agentic search.
+   - Read the structured **Analysis Report** card for clear strengths, critical gaps, and actionable recommendations.
 
-- **Sign Up**: Create a new account with email and password
-- **Sign In**: Log in to your existing account
-- **Sign Out**: Securely log out from your session
-
-### 2. Resume Analysis
-
-1. **Upload Resume**: Click "Upload PDF" to select a resume file
-2. **Add Job Description** (Optional): Paste the target job description for better matching
-3. **Analyze**: Click "Analyze Resume" to start the analysis
-4. **View Results**: Explore detailed analysis across multiple tabs
-
-### 3. Analysis Results
-
-The analysis provides:
-
-- **Overall Score**: ATS compatibility score (0-100%)
-- **Score Breakdown**: Detailed scoring by category
-- **Search Trace**: Visual representation of the Best-First Search process
-- **Skills Analysis**: Matched and missing skills comparison
-- **Keyword Analysis**: Keyword matching against job description
-- **Improvement Tips**: Actionable recommendations
-
-### 4. History Management
-
-- **View History**: Access all previous analyses from the sidebar
-- **Delete Scans**: Remove unwanted analysis results
-- **Compare Results**: Track improvement over time
-
-## 🔧 Technical Details
-
-### Best-First Search Algorithm
-
-The core of TalentLens is the Best-First Search algorithm that:
-
-1. **Extracts Skills**: Identifies key skills from resume and job description
-2. **Builds Search Tree**: Creates a search tree of possible resume improvements
-3. **Applies Heuristics**: Uses multiple heuristics to guide the search:
-   - Skills matching score
-   - Keyword density
-   - Resume structure quality
-   - Action verb usage
-   - Achievement quantification
-4. **Finds Optimal Path**: Returns the best-scoring resume configuration
-
-### Heuristic Evaluation
-
-The system evaluates resumes using multiple heuristics:
-
-- **Skills Matching**: How well skills match job requirements
-- **Structure Quality**: Resume section organization and completeness
-- **Formatting**: Contact information presence and formatting
-- **Action Verbs**: Strong action verb usage in experience descriptions
-- **Achievements**: Quantified achievements and metrics
-- **Keyword Optimization**: Keyword density and relevance
-
-### Scoring System
-
-The final ATS score is calculated as:
-
-```
-Final Score = (Skills × 0.35) + (Structure × 0.25) + 
-              (Experience × 0.20) + (Action Verbs × 0.10) + 
-              (Formatting × 0.10) - Penalties
-```
-
-## 🛠️ Development
-
-### Backend Development
-
-```bash
-cd backend
-npm run dev        # Start with nodemon for auto-restart
-npm start          # Start production server
-```
-
-### Frontend Development
-
-```bash
-cd frontend
-npm run dev        # Start development server
-npm run build      # Build for production
-npm run preview    # Preview production build
-```
-
-### NLP Engine Development
-
-```bash
-cd nlp-engine
-python main.py      # Start FastAPI server
-```
+## 🛠️ Development & Debugging
 
 ### Database Management
-
 ```bash
 cd backend
-npx drizzle-kit generate  # Generate migrations
-npx drizzle-kit migrate   # Apply migrations
-npx drizzle-kit studio    # Open database GUI
+npx drizzle-kit generate  # Generate schema migrations
+npx drizzle-kit push      # Apply migrations
+npx drizzle-kit studio    # Open local database GUI in browser
 ```
 
-## 📚 API Documentation
-
-### Backend API Endpoints
-
-#### Authentication
-- `POST /api/auth/sign-up` - Create new user account
-- `POST /api/auth/sign-in` - Authenticate user
-- `POST /api/auth/sign-out` - Logout user
-- `GET /api/me` - Get current user info
-
-#### Resume Analysis
-- `POST /api/upload` - Upload and analyze resume
-- `GET /api/history` - Get user's analysis history
-- `DELETE /api/resumes/:id` - Delete specific analysis
-
-### NLP Engine Endpoints
-
-- `POST /analyze/pdf` - Analyze PDF resume
-- `POST /analyze` - Analyze text resume
-- `GET /` - Health check endpoint
-
-## 🔒 Security Features
-
-- **Session Management**: Secure session handling with Better Auth
-- **Input Validation**: Comprehensive input sanitization
-- **CORS Configuration**: Proper cross-origin resource sharing
-- **File Upload Security**: Secure file handling and validation
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **Port Conflicts**: Ensure ports 3000, 5173, and 8000 are available
-2. **CORS Issues**: Check that all services are running
-3. **Database Errors**: Verify SQLite database permissions
-4. **PDF Processing**: Ensure Python dependencies are installed
-
-### Debug Mode
-
-Enable detailed logging:
-
+### NLP Test Scripts
+Run direct discrimination and performance test scripts built into the `nlp-engine` folder to verify heuristic accuracy when making changes:
 ```bash
-# Backend
-DEBUG=true npm run dev
-
-# Frontend
-# Check browser console for detailed logs
-
-# NLP Engine
-python main.py --log-level DEBUG
+cd nlp-engine
+python test_accuracy.py
+python test_nlp_scenario.py
+python test_perf.py
 ```
 
 ## 🤝 Contributing
 
-We welcome contributions! Please follow these steps:
-
+We welcome contributions!
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-### Code Style
-
-- **JavaScript**: Use ESLint configuration
-- **Python**: Follow PEP 8 guidelines
-- **React**: Use functional components with hooks
-- **CSS**: Use Tailwind CSS classes
-
 ## 📄 License
-
-This project is licensed under the ISC License - see the LICENSE file for details.
+This project is licensed under the ISC License.
 
 ## 👥 Authors
-
 - **Aryan Doshi** - [GitHub: @aryan-2206]
 - **Indraneel Hajarnis** - [GitHub: @Indraneel-Hajarnis]
 - **Kavish Desai** - [GitHub: @kavish310107] 
 
-## Acknowledgments
-
-- **FastAPI** - For the excellent Python web framework
-- **React** - For the powerful frontend library
-- **Express.js** - For the robust backend framework
-- **Drizzle ORM** - For the elegant database toolkit
-- **Tailwind CSS** - For the utility-first CSS framework
-- **PDF.js** - For client-side PDF processing
-
 ---
-
-**TalentLens** - *Empowering job seekers with AI-driven resume optimization* 🚀
+**TalentLens** - *Empowering job seekers with Agentic AI-driven resume optimization* 🚀
