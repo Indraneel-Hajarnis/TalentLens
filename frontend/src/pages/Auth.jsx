@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useHistory } from "../context/HistoryContext";
+import { Search, Loader2 } from "lucide-react";
 
 export default function Auth() {
   const { refreshHistory } = useHistory();
@@ -44,33 +45,35 @@ export default function Auth() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[85vh] animate-[fadeIn_0.5s_ease-out] gap-8">
+    <div className="flex flex-col items-center justify-center min-h-[85vh] gap-8 relative z-10 w-full max-w-md mx-auto">
       {/* Brand Header */}
       <div className="flex flex-col items-center gap-4">
-        <div className="w-16 h-16 rounded-2xl bg-[#8b5cf6] flex items-center justify-center font-black text-white text-3xl shadow-[0_0_30px_rgba(139,92,246,0.5)]">
-          ATS
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[var(--color-primary-dark)] to-[var(--color-primary)] flex items-center justify-center font-black text-white text-3xl shadow-[0_0_30px_rgba(139,92,246,0.5)]">
+          <Search className="w-8 h-8 text-white" />
         </div>
         <div className="text-center">
-           <h1 className="text-4xl font-black text-white tracking-tighter uppercase">ATS <span className="text-[#8b5cf6]">Analyzer</span></h1>
-           <p className="text-[#64748b] font-bold text-xs uppercase tracking-[0.4em] mt-1 ml-1">AI-Powered Resume Optimization</p>
+           <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70 tracking-tighter">
+             TalentLens
+           </h1>
+           <p className="text-[var(--color-primary)] font-bold text-xs uppercase tracking-[0.4em] mt-1 ml-1">AI Engine Login</p>
         </div>
       </div>
 
-      <div className="w-full max-w-md bg-[#131b26] border border-[#1e293b] rounded-3xl p-8 shadow-2xl relative overflow-hidden group">
+      <div className="w-full glass-panel p-8 relative overflow-hidden group">
         {/* Decorative backdrop */}
-        <div className="absolute top-0 right-0 w-32 h-32 bg-[#0ab5d0]/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-[#0ab5d0]/10 transition-colors"></div>
+        <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--color-secondary)]/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-[var(--color-secondary)]/10 transition-colors"></div>
         
         <h2 className="text-2xl font-bold text-white mb-2">{isLogin ? "Welcome Back" : "Create Account"}</h2>
-        <p className="text-sm text-[#94a3b8] mb-8 font-medium">Please enter your details to continue.</p>
+        <p className="text-sm text-[var(--color-text-muted)] mb-8 font-medium">Please enter your details to continue.</p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {!isLogin && (
             <div className="space-y-2">
-              <label className="text-xs font-bold text-[#64748b] uppercase tracking-wider">Full Name</label>
+              <label className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Full Name</label>
               <input
                 type="text"
                 required
-                className="w-full bg-[#0d1624] border border-[#1e293b] rounded-lg p-3 text-white focus:outline-none focus:border-[#0ab5d0] transition-all"
+                className="w-full glass-input rounded-xl p-3 focus:outline-none transition-all"
                 placeholder="John Doe"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -79,11 +82,11 @@ export default function Auth() {
           )}
           
           <div className="space-y-2">
-            <label className="text-xs font-bold text-[#64748b] uppercase tracking-wider">Email Address</label>
+            <label className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Email Address</label>
             <input
               type="email"
               required
-              className="w-full bg-[#0d1624] border border-[#1e293b] rounded-lg p-3 text-white focus:outline-none focus:border-[#0ab5d0] transition-all"
+              className="w-full glass-input rounded-xl p-3 focus:outline-none transition-all"
               placeholder="name@company.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -91,11 +94,11 @@ export default function Auth() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold text-[#64748b] uppercase tracking-wider">Password</label>
+            <label className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Password</label>
             <input
               type="password"
               required
-              className="w-full bg-[#0d1624] border border-[#1e293b] rounded-lg p-3 text-white focus:outline-none focus:border-[#0ab5d0] transition-all"
+              className="w-full glass-input rounded-xl p-3 focus:outline-none transition-all"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -105,18 +108,18 @@ export default function Auth() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3.5 rounded-lg bg-[#0ab5d0] text-white font-bold text-sm hover:bg-[#009bba] shadow-[0_0_20px_rgba(10,181,208,0.2)] transition-all flex items-center justify-center gap-2"
+            className="w-full py-4 rounded-xl relative overflow-hidden group/btn font-bold text-sm text-white transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.3)] hover:-translate-y-0.5"
           >
-            {loading ? "Processing..." : (isLogin ? "Sign In" : "Sign Up")}
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (isLogin ? "Access Workspace" : "Create Credentials")}
           </button>
         </form>
 
-        <div className="mt-8 pt-6 border-t border-[#1e293b] text-center">
-          <p className="text-sm text-[#94a3b8] font-medium">
+        <div className="mt-8 pt-6 border-t border-white/5 text-center">
+          <p className="text-sm text-[var(--color-text-muted)] font-medium">
             {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
             <button
               onClick={() => setIsLogin(!isLogin)}
-              className="text-[#0ab5d0] hover:underline font-bold"
+              className="text-[var(--color-secondary)] hover:text-white transition-colors hover:underline font-bold"
             >
               {isLogin ? "Sign up" : "Log in"}
             </button>

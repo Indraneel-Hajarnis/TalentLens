@@ -7,6 +7,34 @@ import re
 from collections import Counter
 from analyzer.similarity import tokenize, STOP_WORDS
 
+
+# ---------------------------------------------------------------------------
+# Text normalization — applied before ALL analysis to fix PDF extraction artifacts
+# ---------------------------------------------------------------------------
+
+def normalize_resume_text(text: str) -> str:
+    """
+    Normalize text extracted from PDFs / PDF.js / pdfplumber to fix common
+    artifacts that break word-boundary (\b) regex matching:
+
+    - Non-breaking space (\u00a0), zero-width chars, BOM → regular space
+    - Bullet/decoration characters (•, ▸, ►, ◆ …) → space
+    - Em-dash, en-dash (–, —) → space (prevents "word1—word2" joining)
+    - ASCII control characters → removed
+    - Runs of repeated whitespace → single space
+    """
+    # Non-breaking and invisible whitespace variants
+    text = re.sub(r'[\u00a0\u200b\u200c\u200d\u2009\u202f\ufeff\u3000\u00ad]', ' ', text)
+    # Bullet and decoration characters
+    text = re.sub(r'[•·◦▪▸►‣⁃∙◆◇○●▷▶▻❯❱➤➢➜➔→]', ' ', text)
+    # Em-dash, en-dash, horizontal bar
+    text = re.sub(r'[\u2013\u2014\u2015\u2212]', ' ', text)
+    # ASCII control characters (keep \n and \r)
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    # Collapse multiple spaces / tabs to one
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    return text.strip()
+
 # ---------------------------------------------------------------------------
 # Skill taxonomy — greatly expanded for accuracy across tech domains
 # ---------------------------------------------------------------------------
@@ -87,6 +115,23 @@ SKILL_TAXONOMY = {
         "etl", "elt", "data pipeline", "data warehouse", "data lake",
         "statistics", "probability", "linear algebra", "calculus",
         "algorithms", "data structures",
+        # NLP / AI sub-domains
+        "text classification", "sentiment analysis", "named entity recognition",
+        "ner", "information extraction", "text mining", "speech recognition",
+        "question answering", "text summarization", "machine translation",
+        "topic modeling", "word embeddings", "language model",
+        "tokenization", "lemmatization", "stemming", "pos tagging",
+        "dependency parsing", "coreference resolution", "entity linking",
+        "zero-shot", "few-shot", "instruction tuning", "rlhf",
+        # Data / ML ops
+        "feature engineering", "model training", "model deployment",
+        "model evaluation", "cross validation", "hyperparameter tuning",
+        "data augmentation", "transfer learning", "reinforcement learning",
+        # Engineering concepts
+        "object detection", "image segmentation", "ocr", "recommendation system",
+        "search", "ranking", "retrieval", "embedding", "vector search",
+        # Soft/process
+        "full stack", "backend", "frontend", "cloud native", "open source",
     ],
     "soft_skills": [
         "leadership", "communication", "teamwork", "problem solving",
@@ -116,12 +161,48 @@ SKILL_TAXONOMY = {
     ],
 }
 
-FLAT_SKILLS = {skill for category in SKILL_TAXONOMY.values() for skill in category}
+# Additional NLP/ML/Data tools not fitting neatly into taxonomy categories
+_EXTRA_SKILLS = {
+    "spacy", "nltk", "gensim", "bert", "gpt", "gpt-2", "gpt-3", "gpt-4",
+    "word2vec", "glove", "fasttext", "doc2vec",
+    "jupyter", "jupyter notebook", "colab", "google colab",
+    "weights & biases", "wandb", "mlflow", "bentoml", "seldon",
+    "dvc", "great expectations", "feast",
+    "r", "stata", "spss",
+    "tableau", "power bi", "looker", "superset", "metabase",
+    "excel", "google sheets",
+    "postman", "curl", "graphql", "rest api",
+    "linux", "bash", "shell scripting",
+    "flask", "fastapi", "django rest framework", "drf",
+    "celery", "redis", "rabbitmq",
+    "microservices", "docker-compose", "ci cd",
+    "jira", "confluence", "notion",
+    "pytorch lightning", "timm", "detectron", "mmdetection",
+    "opencv", "pillow", "albumentations",
+    "sql", "nosql", "orm",
+    "langchain", "llamaindex", "llama index", "openai", "anthropic",
+    "mistral", "llama", "ollama", "groq",
+    "vector database", "embeddings", "semantic search",
+    "data cleaning", "data preprocessing", "eda",
+    "a/b test", "hypothesis testing", "regression",
+    "agile", "sprint", "retrospective",
+    "communication", "teamwork", "problem solving",
+    "salesforce", "hubspot", "marketo", "zendesk",
+    "adobe analytics", "google analytics", "mixpanel",
+    "ios", "android", "react native", "flutter", "xamarin",
+    "unity", "unreal", "game development",
+    "blockchain", "smart contracts", "web3", "solidity",
+    "penetration testing", "ethical hacking", "burpsuite",
+    "wireshark", "metasploit", "nmap",
+}
+
+FLAT_SKILLS = {skill for category in SKILL_TAXONOMY.values() for skill in category} | _EXTRA_SKILLS
 
 # Sort multi-word skills first so they are matched before single-word sub-phrases
 SORTED_SKILLS = sorted(FLAT_SKILLS, key=lambda s: -len(s.split()))
 
 ACTION_VERBS = [
+    # Past tense (original)
     "built", "created", "developed", "designed", "implemented", "architected",
     "engineered", "deployed", "optimized", "improved", "reduced", "increased",
     "led", "managed", "mentored", "collaborated", "researched", "analyzed",
@@ -136,7 +217,41 @@ ACTION_VERBS = [
     "organized", "participated", "piloted", "planned", "presented", "prioritized",
     "proposed", "prototyped", "redesigned", "resolved", "reviewed", "secured",
     "simplified", "spearheaded", "standardized", "streamlined", "structured",
-    "support", "transformed", "validated", "visualized",
+    "supported", "transformed", "validated", "visualized",
+    "utilized", "leveraged", "oversaw", "owned", "owned", "drove", "handled",
+    "wrote", "ran", "grew", "tracked", "measured", "reported", "shipped",
+    "onboarded", "hired", "allocated", "partnered", "interfaced", "liaised",
+    "conceptualized", "operationalized", "modelled", "modeled", "fine-tuned",
+    "annotated", "curated", "ingested", "preprocessed", "tokenized", "embedded",
+    "fine tuned", "pretrained", "retrained", "distilled", "deployed",
+    # Present / base forms (many resumes use these)
+    "develop", "build", "create", "design", "implement", "architect",
+    "engineer", "deploy", "optimize", "improve", "lead", "manage", "mentor",
+    "collaborate", "research", "analyze", "automate", "migrate", "integrate",
+    "launch", "deliver", "scale", "refactor", "maintain", "test", "document",
+    "train", "establish", "execute", "expand", "facilitate", "generate",
+    "coordinate", "achieve", "configure", "contribute", "debug", "define",
+    "enhance", "ensure", "evaluate", "monitor", "organize", "present",
+    "resolve", "review", "secure", "standardize", "streamline", "transform",
+    "validate", "utilize", "leverage", "oversee", "own", "handle", "write",
+    "grow", "track", "measure", "report", "ship", "drive",
+    "model", "annotate", "curate", "ingest", "preprocess", "embed",
+    # Progressive / -ing forms (resumes sometimes use these)
+    "developing", "building", "creating", "designing", "implementing",
+    "deploying", "optimizing", "improving", "leading", "managing",
+    "mentoring", "collaborating", "researching", "analyzing", "automating",
+    "integrating", "delivering", "maintaining", "testing", "documenting",
+    "training", "establishing", "facilitating", "generating", "coordinating",
+    "achieving", "configuring", "contributing", "debugging", "enhancing",
+    "ensuring", "evaluating", "monitoring", "organizing", "presenting",
+    "resolving", "reviewing", "securing", "streamlining", "transforming",
+    "validating", "utilizing", "leveraging", "overseeing", "handling",
+    "writing", "growing", "tracking", "measuring", "reporting", "driving",
+    "modeling", "annotating", "curating", "ingesting", "preprocessing",
+    "embedding", "scaling", "migrating", "refactoring", "launching",
+    # Responsibility / ownership language (common in modern resumes)
+    "responsible", "ownership", "spearhead", "pioneer", "champion",
+    "oversee", "helm", "steer",
 ]
 
 
@@ -224,7 +339,23 @@ def skill_match_score(resume_text: str, jd_text: str) -> dict:
 
     matched = resume_skills & jd_skills
     missing = jd_skills - resume_skills
-    score = len(matched) / len(jd_skills)
+    taxonomy_score = len(matched) / len(jd_skills)
+
+    # ── Keyword-floor hybrid ───────────────────────────────────────────────
+    # When the JD uses domain-specific skills not in our taxonomy (<5 found),
+    # supplement with meaningful keyword overlap so the score never falsely
+    # bottoms out at 0% for a genuinely relevant resume.
+    keyword_supplement = 0.0
+    if len(jd_skills) < 5:
+        jd_kw  = {t for t in tokenize(jd_text) if len(t) >= 4}
+        res_kw = {t for t in tokenize(resume_text) if len(t) >= 4}
+        if jd_kw:
+            keyword_supplement = len(res_kw & jd_kw) / len(jd_kw)
+
+    # Blend: taxonomy match is authoritative; keyword supplement fills the gap
+    # when taxonomy coverage is sparse (weight shifts toward keyword as jd_skills→0)
+    taxonomy_weight = min(len(jd_skills) / 5, 1.0)  # 0→0.0 . 5+skills→1.0
+    score = taxonomy_weight * taxonomy_score + (1 - taxonomy_weight) * keyword_supplement
 
     return {
         "score": round(score, 4),
@@ -233,12 +364,15 @@ def skill_match_score(resume_text: str, jd_text: str) -> dict:
         "total_jd": len(jd_skills),
         "resume_skills": sorted(resume_skills),
         "categorized": categorize_skills(sorted(matched)),
+        "keyword_supplement": round(keyword_supplement, 4),
     }
 
 
 def keyword_match_score(resume_text: str, jd_text: str) -> dict:
     """
-    Heuristic: overlap of top-40 JD keywords in resume.
+    Heuristic: overlap of distinctive JD keywords in resume.
+    Filters trivial short tokens (< 4 chars) that pass stop-word removal
+    but carry no discriminating signal (e.g. 'use', 'role', 'team', 'work').
     When no JD, returns a neutral 0.5 so it doesn't distort scoring.
     """
     if not jd_text.strip():
@@ -247,9 +381,10 @@ def keyword_match_score(resume_text: str, jd_text: str) -> dict:
     jd_tokens = tokenize(jd_text)
     resume_tokens = tokenize(resume_text)
 
-    # Use top 40 keywords (was 30)
-    freq = Counter(jd_tokens)
-    top_keywords = [kw for kw, _ in freq.most_common(40)]
+    # Filter: only keep tokens with at least 4 characters to avoid generic short words
+    # that pass stop-word removal but are not discriminative (e.g. "use", "get", "via")
+    freq = Counter(t for t in jd_tokens if len(t) >= 4)
+    top_keywords = [kw for kw, _ in freq.most_common(35)]
 
     resume_set = set(resume_tokens)
     matched = [kw for kw in top_keywords if kw in resume_set]
@@ -267,27 +402,48 @@ def experience_relevance_score(resume_text: str, jd_text: str) -> dict:
     """
     Heuristic: estimates experience relevance using years-mentioned
     and contextual keyword co-occurrence with experience-section words.
+
+    Fixes applied:
+    - Safer section extraction: non-greedy search with explicit boundary patterns.
+    - Counts UNIQUE overlapping token types (not raw occurrences) to avoid
+      double-counting tokens that appear repeatedly in a section.
+    - Falls back to the last 60% of resume text when no section header is found
+      (experience typically appears in the middle/lower portion).
     """
-    experience_section_pattern = r'(experience|work history|employment|career)(.*?)(education|skills|projects|$)'
-    match = re.search(experience_section_pattern, resume_text.lower(), re.DOTALL)
-    exp_text = match.group(2) if match else resume_text
+    # More robust: search for experience section using non-greedy match
+    # and stop at the NEXT section header rather than end-of-string
+    section_end = r'(?=\n\s*(?:education|skills|projects|certifications|awards|publications|references|summary|objective)|$)'
+    exp_match = re.search(
+        r'\b(?:experience|work history|employment|career|professional background)\b(.+?)' + section_end,
+        resume_text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if exp_match:
+        exp_text = exp_match.group(1)
+    else:
+        # Heuristic fallback: experience usually lives in the latter half of the resume
+        midpoint = len(resume_text) // 3
+        exp_text = resume_text[midpoint:]
 
     jd_tokens = set(tokenize(jd_text)) if jd_text.strip() else set(tokenize(resume_text))
-    exp_tokens = tokenize(exp_text)
-    overlap = sum(1 for t in exp_tokens if t in jd_tokens)
+    # Count UNIQUE token types that overlap — prevents inflation from repeated words
+    exp_token_set = set(tokenize(exp_text))
+    unique_overlap = len(exp_token_set & jd_tokens)
 
     # Years of experience mentioned — also match "X+ years", "X yrs"
     years = re.findall(r'(\d+)\+?\s*(?:years?|yrs?)', resume_text.lower())
-    max_years = max((int(y) for y in years), default=0)
-    years_score = min(max_years / 8, 1.0)   # 8+ years = full score (was 10)
+    # Cap at reasonable maximum (> 15 is usually embellishment)
+    max_years = min(max((int(y) for y in years if int(y) <= 50), default=0), 50)
+    years_score = min(max_years / 10, 1.0)  # 10+ years = full score
 
-    overlap_score = min(overlap / max(len(jd_tokens), 1), 1.0)
+    # Normalise overlap against JD vocabulary size
+    overlap_score = min(unique_overlap / max(len(jd_tokens), 1), 1.0)
     score = 0.6 * overlap_score + 0.4 * years_score
 
     return {
         "score": round(score, 4),
         "years_mentioned": max_years,
-        "experience_overlap_tokens": overlap,
+        "experience_overlap_tokens": unique_overlap,
     }
 
 
@@ -337,8 +493,10 @@ def formatting_score(resume_text: str) -> dict:
 def action_verb_score(resume_text: str) -> dict:
     """Heuristic: count of strong action verbs (achievement-oriented language)."""
     text_lower = resume_text.lower()
-    found = [v for v in ACTION_VERBS if re.search(r'\b' + v + r'\b', text_lower)]
-    score = min(len(found) / 12, 1.0)   # 12+ verbs = perfect score (was 10)
+    # Deduplicate ACTION_VERBS before matching (list now contains past/present/ing)
+    unique_verbs = list(dict.fromkeys(ACTION_VERBS))
+    found = [v for v in unique_verbs if re.search(r'\b' + re.escape(v) + r'\b', text_lower)]
+    score = min(len(found) / 8, 1.0)   # 8+ distinct verb types = full score
     return {"score": round(score, 4), "found_verbs": found, "count": len(found)}
 
 
@@ -430,24 +588,27 @@ def education_score(resume_text: str) -> dict:
 # ---------------------------------------------------------------------------
 
 # Weights tuned for JD-present vs JD-absent modes
+# NOTE: achievements weight was added; weights sum to exactly 1.0
 WEIGHTS_WITH_JD = {
-    "keyword":      0.30,
+    "keyword":      0.28,
     "skills":       0.30,
     "experience":   0.15,
     "formatting":   0.08,
     "action_verbs": 0.07,
-    "structure":    0.05,
-    "education":    0.05,
+    "structure":    0.04,
+    "education":    0.04,
+    "achievements": 0.04,
 }
 
 WEIGHTS_NO_JD = {
-    "keyword":      0.10,   # minimal weight without JD
-    "skills":       0.35,
+    "keyword":      0.08,   # minimal weight without JD
+    "skills":       0.33,
     "experience":   0.20,
     "formatting":   0.12,
     "action_verbs": 0.10,
-    "structure":    0.08,
+    "structure":    0.07,
     "education":    0.05,
+    "achievements": 0.05,
 }
 
 
@@ -457,6 +618,11 @@ def composite_heuristic(resume_text: str, jd_text: str) -> dict:
     This is the evaluation function used by Best-First Search to rank candidates.
     Uses different weight profiles depending on whether a JD is present.
     """
+    # Normalize both texts to fix PDF extraction artifacts BEFORE any analysis
+    resume_text = normalize_resume_text(resume_text)
+    if jd_text:
+        jd_text = normalize_resume_text(jd_text)
+
     has_jd = bool(jd_text.strip())
     WEIGHTS = WEIGHTS_WITH_JD if has_jd else WEIGHTS_NO_JD
 
@@ -477,7 +643,8 @@ def composite_heuristic(resume_text: str, jd_text: str) -> dict:
         fmt["score"] * WEIGHTS["formatting"]   +
         av["score"]  * WEIGHTS["action_verbs"] +
         st["score"]  * WEIGHTS["structure"]    +
-        ed["score"]  * WEIGHTS["education"]
+        ed["score"]  * WEIGHTS["education"]    +
+        qa["score"]  * WEIGHTS["achievements"]
     )
 
     final_score = max(0.0, raw_score - pen["penalty"])
@@ -494,6 +661,7 @@ def composite_heuristic(resume_text: str, jd_text: str) -> dict:
             "action_verbs":    {"score": round(av["score"] * 100, 2),  "weight": WEIGHTS["action_verbs"]},
             "structure":       {"score": round(st["score"] * 100, 2),  "weight": WEIGHTS["structure"]},
             "education":       {"score": round(ed["score"] * 100, 2),  "weight": WEIGHTS["education"]},
+            "achievements":    {"score": round(qa["score"] * 100, 2),  "weight": WEIGHTS["achievements"]},
         },
         "details": {
             "keyword":      kw,

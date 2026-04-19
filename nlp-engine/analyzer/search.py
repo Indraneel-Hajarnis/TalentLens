@@ -33,6 +33,7 @@ from analyzer.heuristics import (
     composite_heuristic,
     skill_match_score,
     keyword_match_score,
+    normalize_resume_text,
 )
 from analyzer.similarity import tokenize, compute_similarity_score
 
@@ -63,11 +64,14 @@ class SearchNode:
 # Best-First Search
 # ---------------------------------------------------------------------------
 
+# Maximum nodes to explore before returning best result found so far
+_MAX_NODES = 150
+
 def best_first_search(
     resume_text: str,
     jd_text: str,
     max_depth: int = 12,
-    beam_width: int | None = None,
+    beam_width: int | None = 8,
 ) -> dict[str, Any]:
     """
     Best-First Search over the skill-match space.
@@ -77,7 +81,8 @@ def best_first_search(
     resume_text : Full text of the candidate's resume.
     jd_text     : Full text of the job description.
     max_depth   : Maximum expansion depth (prevents infinite loops).
-    beam_width  : If set, limits frontier size (Beam Search variant).
+    beam_width  : Limits children per expansion (default 8). Prevents
+                  combinatorial explosion with skill-rich resumes.
 
     Returns
     -------
@@ -88,6 +93,11 @@ def best_first_search(
         goal_reached    — True if all JD skills were matched
         stats           — nodes explored, max depth reached, etc.
     """
+
+    # --- Normalize texts to fix PDF/OCR extraction artifacts before skill matching ---
+    resume_text = normalize_resume_text(resume_text)
+    if jd_text:
+        jd_text = normalize_resume_text(jd_text)
 
     # --- Setup ---
     resume_skills = extract_skills(resume_text)
@@ -108,8 +118,43 @@ def best_first_search(
         reverse=True,
     )
 
+    # ------------------------------------------------------------------
+    # PRE-COMPUTE constant heuristic components ONCE (not per-node).
+    # keyword_match_score and cosine_similarity only depend on the full
+    # resume/JD text — they are identical for every node in the search
+    # tree.  Computing them inside the loop caused O(N²) tokenisation
+    # calls and was the root cause of the infinite-loading hang.
+    # ------------------------------------------------------------------
+    if jd_text.strip():
+        _kw = keyword_match_score(resume_text, jd_text)
+        _kw_score = _kw["score"]
+        _sim = compute_similarity_score(resume_text, jd_text)
+        _cos_score = _sim["cosine_score"]
+    else:
+        _kw_score = 0.5
+        _sim = compute_similarity_score(resume_text, resume_text)
+        _cos_score = _sim["cosine_score"]
+
+    n_jd = len(jd_skills)
+
+    def _fast_h(matched: frozenset) -> float:
+        """Lightweight h(n): mirrors WEIGHTS_WITH_JD so the node the search
+        crowns as best matches the final composite_heuristic ranking.
+
+        weights (must sum to 1.0):
+            skill coverage  → 0.45  (skills 0.30 + experience proxy 0.15)
+            keyword match   → 0.28
+            cosine sim      → 0.15  (remaining text-level signal)
+            goal bonus      → 0.12  (reward fully-matched JD skills)
+        """
+        if n_jd == 0:
+            return 0.0
+        coverage   = len(matched & jd_skills) / n_jd
+        goal_bonus = 0.12 if jd_skills.issubset(matched) else 0.0
+        return round(0.45 * coverage + 0.28 * _kw_score + 0.15 * _cos_score + goal_bonus, 4)
+
     # --- Initial node: empty skill set ---
-    initial_h = _heuristic(frozenset(), resume_text, jd_text, jd_skills)
+    initial_h = _fast_h(frozenset())
     initial_node = SearchNode(
         priority  = -initial_h,
         depth     = 0,
@@ -160,6 +205,10 @@ def best_first_search(
                 goal_reached=True,
             )
 
+        # Safety: cap total explored nodes to prevent runaway searches
+        if nodes_explored >= _MAX_NODES:
+            break
+
         # Depth limit
         if node.depth >= max_depth:
             continue
@@ -173,7 +222,7 @@ def best_first_search(
             if new_matched in visited:
                 continue
 
-            h = _heuristic(new_matched, resume_text, jd_text, jd_skills)
+            h = _fast_h(new_matched)
             child = SearchNode(
                 priority  = -h,
                 depth     = node.depth + 1,
@@ -183,14 +232,14 @@ def best_first_search(
             )
             children.append(child)
 
-        # Beam Search variant: keep only top-k children
+        # Beam Search: keep only top-k children (default 8)
         if beam_width:
             children = sorted(children)[:beam_width]
 
         for child in children:
             heapq.heappush(frontier, child)
 
-    # Frontier exhausted — return best found
+    # Frontier exhausted or node cap reached — return best found
     return _build_result(
         best_node, search_trace, all_nodes,
         resume_text, jd_text, jd_skills, nodes_explored,
@@ -199,7 +248,7 @@ def best_first_search(
 
 
 # ---------------------------------------------------------------------------
-# Heuristic function h(n)
+# Legacy heuristic (kept for composite_heuristic calls outside search)
 # ---------------------------------------------------------------------------
 
 def _heuristic(

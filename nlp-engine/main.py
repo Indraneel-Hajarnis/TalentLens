@@ -100,12 +100,130 @@ def analyze_text(req: TextAnalysisRequest):
     matched_skills = search_result.get("best_match", {}).get("matched_skills", [])
     missing_skills = search_result.get("best_match", {}).get("missing_skills", [])
 
-    total_skills = len(matched_skills) + len(missing_skills)
+    total_jd_skills = len(matched_skills) + len(missing_skills)
     similarity_score = sim.get("cosine_score", 0)
     final_score = search_result.get("composite_score", {}).get("final_score", 0)
-
     breakdown = search_result.get("composite_score", {}).get("breakdown", {})
+    details   = search_result.get("composite_score", {}).get("details", {})
 
+    # ── Structured report generation ─────────────────────────────────────────
+    has_jd = bool(req.jd_text.strip())
+
+    # Overall verdict label
+    if final_score >= 75:
+        verdict = "Strong Match"
+        verdict_detail = "This resume is well-aligned with the job description."
+    elif final_score >= 55:
+        verdict = "Good Match"
+        verdict_detail = "This resume covers most key requirements with some gaps to address."
+    elif final_score >= 35:
+        verdict = "Partial Match"
+        verdict_detail = "Significant skill or keyword gaps exist between this resume and the JD."
+    else:
+        verdict = "Weak Match"
+        verdict_detail = "This resume has limited alignment with the job requirements."
+
+    # Identify top 3 strengths (highest scoring sub-components)
+    strengths = []
+    sorted_bd = sorted(breakdown.items(), key=lambda x: x[1]["score"], reverse=True)
+    for key, val in sorted_bd[:3]:
+        label = key.replace("_", " ").title()
+        strengths.append(f"{label}: {val['score']:.1f}%")
+
+    # Identify top 3 critical gaps (lowest scoring components with notable weight)
+    gaps = []
+    sorted_low = sorted(breakdown.items(), key=lambda x: x[1]["score"] * x[1]["weight"])
+    for key, val in sorted_low[:3]:
+        label = key.replace("_", " ").title()
+        gaps.append(f"{label}: {val['score']:.1f}% (weight {round(val['weight']*100)}%)")
+
+    # Specific skill gap context
+    skill_gap_text = ""
+    if has_jd and missing_skills:
+        top_missing = missing_skills[:5]
+        skill_gap_text = f"Top missing JD skills: {', '.join(top_missing)}."
+        if len(missing_skills) > 5:
+            skill_gap_text += f" (+{len(missing_skills) - 5} more)"
+    elif has_jd and not missing_skills and matched_skills:
+        skill_gap_text = "All detected JD skills are present in the resume."
+
+    # Keyword context
+    kw_details = details.get("keyword", {})
+    keyword_context = ""
+    if kw_details.get("matched_keywords"):
+        top_kw = kw_details["matched_keywords"][:6]
+        keyword_context = f"Strong contextual keywords found: {', '.join(top_kw)}."
+    if kw_details.get("missing_keywords"):
+        miss_kw = kw_details["missing_keywords"][:5]
+        keyword_context += f" Missing key terms: {', '.join(miss_kw)}."
+
+    # Actionable suggestions
+    suggestions = []
+    fmt_d = details.get("formatting", {})
+    av_d  = details.get("action_verbs", {})
+    qa_d  = details.get("achievements", {})
+    st_d  = details.get("structure", {})
+
+    if not fmt_d.get("has_email"):
+        suggestions.append("Add a professional email address — ATS parsers require it for contact extraction.")
+    if not fmt_d.get("has_phone"):
+        suggestions.append("Include a direct phone number for recruiter outreach.")
+    if not fmt_d.get("has_linkedin"):
+        suggestions.append("Add your LinkedIn profile URL to increase profile credibility.")
+    if (av_d.get("count", 0)) < 5:
+        suggestions.append(
+            f"Strengthen with action verbs (currently {av_d.get('count', 0)} found; aim for 8+). "
+            "E.g., 'Implemented', 'Optimized', 'Led', 'Deployed'."
+        )
+    if (qa_d.get("achievement_count", 0)) < 3:
+        suggestions.append(
+            "Quantify achievements: use metrics like %, $, or × multipliers to show measurable impact."
+        )
+    if missing_skills:
+        suggestions.append(f"Bridge skill gaps by adding: {', '.join(missing_skills[:4])}.")
+    if st_d.get("missing_sections"):
+        miss_sec = st_d["missing_sections"][:3]
+        suggestions.append(f"Consider adding missing sections: {', '.join(s.title() for s in miss_sec)}.")
+    if details.get("stuffing", {}).get("stuffed"):
+        suggestions.append("Reduce keyword repetition — unnatural density may trigger ATS spam filters.")
+
+    # Build the structured report summary
+    report_lines = [
+        f"OVERALL: {verdict} — {final_score:.1f}%",
+        f"{verdict_detail}",
+        "",
+    ]
+
+    if strengths:
+        report_lines.append("STRENGTHS")
+        for s in strengths:
+            report_lines.append(f"  ✓ {s}")
+        report_lines.append("")
+
+    if gaps:
+        report_lines.append("CRITICAL GAPS")
+        for g in gaps:
+            report_lines.append(f"  ✗ {g}")
+        report_lines.append("")
+
+    if skill_gap_text:
+        report_lines.append(f"SKILL ALIGNMENT ({len(matched_skills)}/{total_jd_skills} JD skills matched)")
+        report_lines.append(f"  {skill_gap_text}")
+        report_lines.append("")
+
+    if keyword_context:
+        report_lines.append("KEYWORD CONTEXT")
+        report_lines.append(f"  {keyword_context}")
+        report_lines.append("")
+
+    if suggestions:
+        report_lines.append("RECOMMENDATIONS")
+        for i, tip in enumerate(suggestions, 1):
+            report_lines.append(f"  {i}. {tip}")
+
+    report_summary = "\n".join(report_lines)
+
+    # Legacy explanation text (kept for backwards compat)
     breakdown_lines = []
     for key, val in breakdown.items():
         label = key.replace("_", " ").title()
@@ -115,7 +233,7 @@ def analyze_text(req: TextAnalysisRequest):
 
     explanation_text = f"""The resume scored {final_score}% based on multi-factor heuristic evaluation:
 
-  Skills: {len(matched_skills)} of {total_skills} JD skills matched
+  Skills: {len(matched_skills)} of {total_jd_skills} JD skills matched
   Keyword Similarity: {similarity_score:.2f}
   Best-First Search explored {search_result.get('stats', {}).get('nodes_explored', 0)} nodes
 
@@ -129,7 +247,12 @@ def analyze_text(req: TextAnalysisRequest):
         "search":  search_result,
         "similarity": sim,
         "score":   search_result.get("composite_score", {}).get("final_score", 0),
-        "explanationText": explanation_text
+        "explanationText": explanation_text,
+        "reportSummary": report_summary,
+        "verdict": verdict,
+        "strengths": strengths,
+        "gaps": gaps,
+        "suggestions": suggestions,
     }
 
 
@@ -140,6 +263,7 @@ async def analyze_pdf(
 ):
     """
     Upload a PDF resume; server extracts text and runs Best-First Search.
+    Returns full structured report identical to /analyze.
     """
     if not resume.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
@@ -152,16 +276,13 @@ async def analyze_pdf(
 
     logger.info(f"PDF extracted: {len(resume_text)} chars. Running search...")
 
-    search_result = best_first_search(resume_text, jd_text)
-    sim = compute_similarity_score(resume_text, jd_text or resume_text)
+    # Delegate to the same analysis logic as /analyze by constructing a request
+    req = TextAnalysisRequest(resume_text=resume_text, jd_text=jd_text)
+    result = analyze_text(req)
 
-    return {
-        "success":     True,
-        "resume_text": resume_text[:500] + "..." if len(resume_text) > 500 else resume_text,
-        "search":      search_result,
-        "similarity":  sim,
-        "score":       search_result.get("composite_score", {}).get("final_score", 0),
-    }
+    # Attach truncated preview of the extracted text for the frontend to display
+    result["resume_text"] = resume_text[:500] + "..." if len(resume_text) > 500 else resume_text
+    return result
 
 
 @app.post("/skills")

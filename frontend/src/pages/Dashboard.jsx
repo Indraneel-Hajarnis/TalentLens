@@ -1,25 +1,40 @@
 import { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  FileText, Upload, Sparkles, Target, Zap, Cpu, Award, 
+  CheckCircle, PlusCircle, AlertCircle, FileSearch, 
+  Lightbulb, Activity, Check, X, ShieldAlert 
+} from "lucide-react";
 
 const NLP_ENGINE = "http://localhost:8000";
 
 // ─── Colour helpers ──────────────────────────────────────────────────────────
 const scoreColor = (s) => {
-  if (s >= 75) return "#22c55e";
-  if (s >= 50) return "#f59e0b";
-  if (s >= 30) return "#f97316";
-  return "#ef4444";
+  if (s >= 75) return "#10b981"; // success green
+  if (s >= 50) return "#f59e0b"; // warning amber
+  if (s >= 30) return "#f97316"; // orange
+  return "#ef4444"; // danger red
 };
-const scoreBg = (s) => {
-  if (s >= 75) return "rgba(34,197,94,.12)";
-  if (s >= 50) return "rgba(245,158,11,.12)";
-  if (s >= 30) return "rgba(249,115,22,.12)";
-  return "rgba(239,68,68,.12)";
-};
+
 const scoreLabel = (s) => {
   if (s >= 75) return "Strong Match";
   if (s >= 50) return "Good Match";
   if (s >= 30) return "Partial Match";
   return "Weak Match";
+};
+
+// ─── Framer Motion Variants ──────────────────────────────────────────────────
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
 };
 
 // ─── Animated counter ────────────────────────────────────────────────────────
@@ -41,36 +56,272 @@ function AnimatedNumber({ value, suffix = "" }) {
 }
 
 // ─── Circular Score Ring ─────────────────────────────────────────────────────
-function ScoreRing({ score, size = 140, stroke = 10 }) {
+function ScoreRing({ score, size = 160, stroke = 12 }) {
   const r = (size - stroke) / 2;
   const circ = 2 * Math.PI * r;
   const dash = (score / 100) * circ;
   const color = scoreColor(score);
+  
   return (
-    <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,.08)" strokeWidth={stroke} />
-      <circle
-        cx={size / 2} cy={size / 2} r={r} fill="none"
-        stroke={color} strokeWidth={stroke}
-        strokeDasharray={`${dash} ${circ}`}
-        strokeLinecap="round"
-        style={{ transition: "stroke-dasharray 1s ease" }}
-      />
-      <text
-        x="50%" y="50%"
-        dominantBaseline="middle" textAnchor="middle"
-        style={{ fill: color, fontSize: size * 0.2, fontWeight: 700, fontFamily: "monospace", transform: "rotate(90deg)", transformOrigin: "50% 50%" }}
-      >
-        {score}%
-      </text>
-      <text
-        x="50%" y="65%"
-        dominantBaseline="middle" textAnchor="middle"
-        style={{ fill: "rgba(255,255,255,.5)", fontSize: size * 0.1, transform: "rotate(90deg)", transformOrigin: "50% 50%" }}
-      >
-        ATS Score
-      </text>
-    </svg>
+    <div className="relative flex items-center justify-center">
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }} className="drop-shadow-2xl">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={stroke} />
+        <motion.circle
+          cx={size / 2} cy={size / 2} r={r} fill="none"
+          stroke={color} strokeWidth={stroke}
+          strokeLinecap="round"
+          initial={{ strokeDasharray: `0 ${circ}` }}
+          animate={{ strokeDasharray: `${dash} ${circ}` }}
+          transition={{ duration: 1.5, ease: "easeOut" }}
+          style={{ filter: `drop-shadow(0 0 10px ${color})` }}
+        />
+      </svg>
+      <div className="absolute flex flex-col items-center justify-center">
+        <motion.span 
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring", delay: 0.5 }}
+          className="text-4xl font-black tabular-nums tracking-tighter" style={{ color }}
+        >
+          <AnimatedNumber value={score} />%
+        </motion.span>
+        <span className="text-[10px] uppercase font-bold text-white/40 tracking-widest mt-1">
+          Match Score
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Heuristic SVG Chart ─────────────────────────────────────────────────────
+function HeuristicChart({ trace, maxH }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+  const pathRef = useRef(null);
+
+  const W = 800, H = 200;
+  const PAD = { top: 28, right: 24, bottom: 38, left: 48 };
+  const iW = W - PAD.left - PAD.right;
+  const iH = H - PAD.top - PAD.bottom;
+
+  const displayTrace = trace.slice(0, 60);
+  const n = displayTrace.length;
+
+  const xOf = (i) => PAD.left + (n <= 1 ? iW / 2 : (i / (n - 1)) * iW);
+  const yOf = (h) => PAD.top + iH - (h / (maxH || 1)) * iH;
+
+  const linePts = displayTrace.map((s, i) => `${xOf(i)},${yOf(s.heuristic)}`).join(" L ");
+  const areaPath = `M ${xOf(0)},${PAD.top + iH} L ${linePts} L ${xOf(n - 1)},${PAD.top + iH} Z`;
+  const linePath = `M ${linePts}`;
+
+  const yTicks = [0, 25, 50, 75, 100];
+  const peakIdx = displayTrace.reduce((b, s, i) =>
+    s.heuristic > displayTrace[b].heuristic ? i : b, 0);
+
+  const hovered = hoveredIdx !== null ? displayTrace[hoveredIdx] : null;
+  const hoveredPrev = hoveredIdx > 0 ? displayTrace[hoveredIdx - 1] : null;
+  const delta = hovered && hoveredPrev
+    ? (hovered.heuristic - hoveredPrev.heuristic).toFixed(2)
+    : null;
+  const netDelta = displayTrace.length > 1
+    ? (displayTrace[displayTrace.length - 1].heuristic - displayTrace[0].heuristic).toFixed(2)
+    : 0;
+
+  return (
+    <div className="mb-6">
+      {/* Title row */}
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
+          <Activity className="w-3 h-3" /> Heuristic Value History — h(n) per Search Step
+        </p>
+        <div className="flex items-center gap-4 text-[10px] font-mono text-white/35">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-0.5 rounded-full bg-[#10b981]" />Improving
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-0.5 rounded-full bg-[#ef4444]" />Declining
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />Peak
+          </span>
+        </div>
+      </div>
+
+      {/* Hover tooltip bar */}
+      <AnimatePresence>
+        {hovered && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="mb-3 flex flex-wrap items-center gap-3 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-mono"
+          >
+            <span className="text-white/40">Step <span className="text-white font-bold">{hovered.step}</span></span>
+            <span className="text-white/20">·</span>
+            <span className="text-white/40">Depth <span className="text-[var(--color-primary)] font-bold">{hovered.depth}</span></span>
+            <span className="text-white/20">·</span>
+            <span className="text-white/40">h(n) = <span className="font-bold" style={{ color: scoreColor(hovered.heuristic) }}>{hovered.heuristic}</span></span>
+            {delta !== null && (
+              <>
+                <span className="text-white/20">·</span>
+                <span className="font-bold" style={{ color: Number(delta) >= 0 ? "#10b981" : "#ef4444" }}>
+                  {Number(delta) >= 0 ? "▲" : "▼"} {Math.abs(delta)} vs prev
+                </span>
+              </>
+            )}
+            {hovered.added_skill && (
+              <>
+                <span className="text-white/20">·</span>
+                <span className="px-2 py-0.5 rounded-lg bg-[#34d399]/15 text-[#34d399] border border-[#34d399]/25 text-[11px]">
+                  +{hovered.added_skill}
+                </span>
+              </>
+            )}
+            {hovered.matched_skills?.length > 0 && (
+              <span className="text-white/30 truncate max-w-xs">
+                [{hovered.matched_skills.slice(0, 4).join(", ")}{hovered.matched_skills.length > 4 ? ` +${hovered.matched_skills.length - 4}` : ""}]
+              </span>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* SVG chart */}
+      <div className="w-full rounded-2xl bg-white/[0.02] border border-white/5 overflow-hidden">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
+          className="w-full"
+          style={{ height: "220px" }}
+          onMouseLeave={() => setHoveredIdx(null)}
+        >
+          <defs>
+            <linearGradient id="hcAreaGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-primary)" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="var(--color-primary)" stopOpacity="0.01" />
+            </linearGradient>
+            <filter id="hcGlow">
+              <feGaussianBlur stdDeviation="2.5" result="blur" />
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <clipPath id="hcClip">
+              <rect x={PAD.left} y={PAD.top} width={iW} height={iH} />
+            </clipPath>
+          </defs>
+
+          {/* Y-axis gridlines + labels */}
+          {yTicks.map((tick) => {
+            const y = yOf((tick / 100) * maxH);
+            return (
+              <g key={tick}>
+                <line x1={PAD.left} y1={y} x2={PAD.left + iW} y2={y}
+                  stroke="rgba(255,255,255,0.05)" strokeWidth="1"
+                  strokeDasharray={tick === 0 ? "none" : "4 4"} />
+                <text x={PAD.left - 8} y={y + 4} textAnchor="end"
+                  fill="rgba(255,255,255,0.28)" fontSize="9" fontFamily="monospace">
+                  {tick}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* X-axis step labels (every 5 steps) */}
+          {displayTrace.map((s, i) => {
+            if (i === 0 || (i + 1) % 5 !== 0) return null;
+            return (
+              <text key={i} x={xOf(i)} y={PAD.top + iH + 14}
+                textAnchor="middle" fill="rgba(255,255,255,0.22)" fontSize="9" fontFamily="monospace">
+                {s.step}
+              </text>
+            );
+          })}
+          {/* Axis labels */}
+          <text x={PAD.left + iW / 2} y={H - 2} textAnchor="middle"
+            fill="rgba(255,255,255,0.18)" fontSize="8" fontFamily="monospace">STEP</text>
+          <text x={12} y={PAD.top + iH / 2} textAnchor="middle"
+            fill="rgba(255,255,255,0.18)" fontSize="8" fontFamily="monospace"
+            transform={`rotate(-90, 12, ${PAD.top + iH / 2})`}>h(n)</text>
+
+          {/* Area fill */}
+          <path d={areaPath} fill="url(#hcAreaGrad)" clipPath="url(#hcClip)" />
+
+          {/* Per-segment coloured line (green=rise, red=fall) */}
+          {displayTrace.slice(1).map((s, i) => {
+            const prev = displayTrace[i];
+            const col = s.heuristic >= prev.heuristic ? "#10b981" : "#ef4444";
+            return (
+              <line key={i}
+                x1={xOf(i)} y1={yOf(prev.heuristic)}
+                x2={xOf(i + 1)} y2={yOf(s.heuristic)}
+                stroke={col} strokeWidth="2.5" strokeLinecap="round"
+                filter="url(#hcGlow)" clipPath="url(#hcClip)" />
+            );
+          })}
+
+          {/* Entrance animation overlay */}
+          <motion.path
+            ref={pathRef}
+            d={linePath}
+            fill="none"
+            stroke="rgba(255,255,255,0.08)"
+            strokeWidth="1"
+            clipPath="url(#hcClip)"
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: 1 }}
+            transition={{ duration: 1.6, ease: "easeOut" }}
+          />
+
+          {/* Peak marker */}
+          <g>
+            <line x1={xOf(peakIdx)} y1={PAD.top}
+              x2={xOf(peakIdx)} y2={PAD.top + iH}
+              stroke="#f59e0b" strokeWidth="1" strokeDasharray="3 3" opacity="0.45" />
+            <circle cx={xOf(peakIdx)} cy={yOf(displayTrace[peakIdx].heuristic)}
+              r="5" fill="#f59e0b" filter="url(#hcGlow)" />
+            <text x={xOf(peakIdx)} y={PAD.top + 13} textAnchor="middle"
+              fill="#f59e0b" fontSize="9" fontFamily="monospace" fontWeight="bold">
+              ▲ {displayTrace[peakIdx].heuristic}
+            </text>
+          </g>
+
+          {/* Interactive dots with hover hit targets */}
+          {displayTrace.map((s, i) => {
+            const isHov = hoveredIdx === i;
+            const col = scoreColor(s.heuristic);
+            return (
+              <g key={i} onMouseEnter={() => setHoveredIdx(i)} style={{ cursor: "crosshair" }}>
+                <circle cx={xOf(i)} cy={yOf(s.heuristic)} r="12" fill="transparent" />
+                <motion.circle
+                  cx={xOf(i)} cy={yOf(s.heuristic)}
+                  fill={col}
+                  stroke={isHov ? "white" : "transparent"}
+                  strokeWidth="1.5"
+                  filter={isHov ? "url(#hcGlow)" : undefined}
+                  animate={{ r: isHov ? 5 : i === peakIdx ? 4 : 2.5 }}
+                  transition={{ duration: 0.12 }}
+                />
+                {isHov && (
+                  <line x1={xOf(i)} y1={PAD.top} x2={xOf(i)} y2={PAD.top + iH}
+                    stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeDasharray="3 3" />
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* Mini stat row */}
+      <div className="flex flex-wrap items-center gap-5 mt-3 text-[10px] font-mono text-white/40">
+        <span>Peak h(n): <span className="text-[#f59e0b] font-bold">{maxH}</span></span>
+        <span>Start: <span className="text-white/60 font-bold">{displayTrace[0]?.heuristic ?? "—"}</span></span>
+        <span>Final: <span className="text-white/60 font-bold">{displayTrace[displayTrace.length - 1]?.heuristic ?? "—"}</span></span>
+        {displayTrace.length > 1 && (
+          <span>Net Δ: <span className="font-bold" style={{ color: Number(netDelta) >= 0 ? "#10b981" : "#ef4444" }}>
+            {Number(netDelta) >= 0 ? "+" : ""}{netDelta}
+          </span></span>
+        )}
+        <span className="ml-auto opacity-60">Showing {displayTrace.length} / {trace.length} steps · hover dots for detail</span>
+      </div>
+    </div>
   );
 }
 
@@ -82,236 +333,210 @@ function SearchTracePanel({ trace, stats, allNodes }) {
   const maxH = Math.max(...trace.map((s) => s.heuristic), 1);
 
   return (
-    <div style={{
-      background: "rgba(15,15,25,.95)",
-      border: "1px solid rgba(139,92,246,.3)",
-      borderRadius: 16, padding: 24, marginTop: 24,
-    }}>
+    <motion.div variants={itemVariants} className="glass-panel p-6 mt-6">
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{
-              background: "rgba(139,92,246,.2)", border: "1px solid rgba(139,92,246,.5)",
-              color: "#a78bfa", borderRadius: 8, padding: "3px 10px", fontSize: 11, fontFamily: "monospace"
-            }}>
-              ALGORITHM
-            </span>
-            <h3 style={{ color: "#e2e8f0", margin: 0, fontSize: 16, fontWeight: 700 }}>
-              Best-First Search — Skill Matching Trace
-            </h3>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex gap-4 items-center">
+          <div className="p-2.5 bg-[var(--color-primary)]/20 rounded-xl border border-[var(--color-primary)]/30">
+            <Cpu className="w-6 h-6 text-[var(--color-primary)] animate-pulse" />
           </div>
-          <p style={{ color: "rgba(255,255,255,.45)", fontSize: 12, margin: "6px 0 0", fontFamily: "monospace" }}>
-            Frontier explored {stats?.nodes_explored} nodes · max depth {stats?.max_depth_reached} · greedy h(n) ordering
-          </p>
+          <div>
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              Best-First Search Trace
+            </h3>
+            <p className="text-xs text-white/50 font-mono mt-1">
+              Frontier explored <span className="text-[var(--color-primary)] font-bold">{stats?.nodes_explored}</span> nodes · max depth <span className="text-[var(--color-primary)] font-bold">{stats?.max_depth_reached}</span>
+            </p>
+          </div>
         </div>
         <button
           onClick={() => setExpanded(!expanded)}
-          style={{
-            background: "rgba(139,92,246,.15)", border: "1px solid rgba(139,92,246,.4)",
-            color: "#a78bfa", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 12,
-          }}
+          className="px-4 py-2 bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 border border-[var(--color-primary)]/30 rounded-xl text-xs font-semibold text-[var(--color-primary)] transition-colors"
         >
-          {expanded ? "Collapse ▲" : "Expand ▼"}
+          {expanded ? "Collapse Details" : "View Traces"}
         </button>
       </div>
 
       {/* Stats bar */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {[
-          { label: "Nodes Explored", value: stats?.nodes_explored },
-          { label: "Max Depth", value: stats?.max_depth_reached },
-          { label: "JD Skills", value: stats?.total_jd_skills },
-          { label: "Resume Skills", value: stats?.total_resume_skills },
-        ].map(({ label, value }) => (
-          <div key={label} style={{
-            background: "rgba(139,92,246,.08)", border: "1px solid rgba(139,92,246,.2)",
-            borderRadius: 10, padding: "8px 16px", textAlign: "center", minWidth: 90,
-          }}>
-            <div style={{ color: "#a78bfa", fontSize: 18, fontWeight: 700, fontFamily: "monospace" }}>{value ?? "—"}</div>
-            <div style={{ color: "rgba(255,255,255,.4)", fontSize: 10 }}>{label}</div>
+          { label: "Nodes Explored", value: stats?.nodes_explored, icon: Activity },
+          { label: "Max Depth", value: stats?.max_depth_reached, icon: Target },
+          { label: "JD Skills", value: stats?.total_jd_skills, icon: FileSearch },
+          { label: "Resume Skills", value: stats?.total_resume_skills, icon: FileText },
+        ].map(({ label, value, icon: Icon }) => (
+          <div key={label} className="bg-white/5 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:bg-white/10 transition-colors">
+            <Icon className="w-5 h-5 text-[var(--color-primary)] mb-2 opacity-80" />
+            <div className="text-2xl font-black font-mono text-white/90">{value ?? "—"}</div>
+            <div className="text-[10px] font-semibold text-white/40 uppercase tracking-wider">{label}</div>
           </div>
         ))}
       </div>
 
-      {/* Mini bar chart of h(n) per step */}
-      <div style={{ marginBottom: 12 }}>
-        <p style={{ color: "rgba(255,255,255,.4)", fontSize: 11, marginBottom: 8, fontFamily: "monospace" }}>
-          h(n) HEURISTIC VALUE PER SEARCH STEP
-        </p>
-        <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 50 }}>
-          {trace.slice(0, 30).map((step, i) => {
-            const h = step.heuristic / maxH;
-            const col = scoreColor(step.heuristic);
-            return (
-              <div
-                key={i}
-                title={`Step ${step.step}: h=${step.heuristic} | +${step.added_skill}`}
-                style={{
-                  flex: 1, background: col, opacity: 0.7, borderRadius: "3px 3px 0 0",
-                  height: `${Math.max(h * 100, 4)}%`,
-                  transition: "height .3s ease",
-                  cursor: "pointer",
-                  minWidth: 4,
-                }}
-              />
-            );
-          })}
-        </div>
-      </div>
+      {/* Rich heuristic chart */}
+      <HeuristicChart trace={trace} maxH={maxH} />
 
       {/* Expanded step table */}
-      {expanded && (
-        <div style={{ overflowX: "auto", marginTop: 16 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "monospace" }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid rgba(255,255,255,.1)" }}>
-                {["Step", "Depth", "Added Skill", "h(n)", "Matched Skills"].map((h) => (
-                  <th key={h} style={{ color: "rgba(255,255,255,.45)", padding: "6px 10px", textAlign: "left", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {trace.map((step, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.05)" }}>
-                  <td style={{ color: "rgba(255,255,255,.4)", padding: "5px 10px" }}>{step.step}</td>
-                  <td style={{ color: "#a78bfa", padding: "5px 10px" }}>{step.depth}</td>
-                  <td style={{ color: "#34d399", padding: "5px 10px" }}>{step.added_skill ?? "—"}</td>
-                  <td style={{ padding: "5px 10px" }}>
-                    <span style={{ color: scoreColor(step.heuristic), fontWeight: 700 }}>{step.heuristic}</span>
-                  </td>
-                  <td style={{ color: "rgba(255,255,255,.6)", padding: "5px 10px" }}>
-                    {step.matched_skills?.slice(0, 5).join(", ")}{step.matched_skills?.length > 5 ? ` +${step.matched_skills.length - 5}` : ""}
-                  </td>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-x-auto mt-6 border border-white/10 rounded-xl"
+          >
+            <table className="w-full text-xs text-left">
+              <thead className="bg-white/5 text-white/50 uppercase font-mono tracking-wider">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Step</th>
+                  <th className="px-4 py-3 font-semibold">Depth</th>
+                  <th className="px-4 py-3 font-semibold">Added Skill</th>
+                  <th className="px-4 py-3 font-semibold">h(n)</th>
+                  <th className="px-4 py-3 font-semibold">Δh</th>
+                  <th className="px-4 py-3 font-semibold">Matched State</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Top nodes from search */}
-      {allNodes && allNodes.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <p style={{ color: "rgba(255,255,255,.4)", fontSize: 11, marginBottom: 10, fontFamily: "monospace" }}>
-            TOP NODES BY HEURISTIC SCORE
-          </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {allNodes.slice(0, 6).map((node, i) => (
-              <div key={i} style={{
-                background: i === 0 ? "rgba(34,197,94,.1)" : "rgba(255,255,255,.04)",
-                border: `1px solid ${i === 0 ? "rgba(34,197,94,.4)" : "rgba(255,255,255,.1)"}`,
-                borderRadius: 10, padding: "8px 14px", minWidth: 140,
-              }}>
-                {i === 0 && <div style={{ color: "#22c55e", fontSize: 10, marginBottom: 4 }}>★ BEST NODE</div>}
-                <div style={{ color: scoreColor(node.heuristic), fontWeight: 700, fontSize: 14, fontFamily: "monospace" }}>
-                  {node.heuristic}%
-                </div>
-                <div style={{ color: "rgba(255,255,255,.4)", fontSize: 10 }}>depth {node.depth}</div>
-                <div style={{ color: "rgba(255,255,255,.55)", fontSize: 10, marginTop: 4 }}>
-                  {node.matched?.slice(0, 3).join(", ")}
-                  {node.matched?.length > 3 ? ` +${node.matched.length - 3}` : ""}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {trace.map((step, i) => {
+                  const d = i === 0 ? 0 : step.heuristic - trace[i - 1].heuristic;
+                  const dStr = d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2);
+                  const dCol = d > 0 ? "#10b981" : d < 0 ? "#ef4444" : "#6b7280";
+                  return (
+                    <tr key={i} className="hover:bg-white/5 transition-colors font-mono">
+                      <td className="px-4 py-2.5 text-white/40">{step.step}</td>
+                      <td className="px-4 py-2.5 text-[var(--color-primary)]">{step.depth}</td>
+                      <td className="px-4 py-2.5 text-[#34d399]">{step.added_skill ?? "—"}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="px-2 py-1 rounded-md font-bold" style={{ color: scoreColor(step.heuristic), background: `${scoreColor(step.heuristic)}20` }}>
+                          {step.heuristic}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-bold" style={{ color: dCol }}>{i === 0 ? "—" : dStr}</td>
+                      <td className="px-4 py-2.5 text-white/50 truncate max-w-[200px]">
+                        {step.matched_skills?.slice(0, 3).join(", ")}{step.matched_skills?.length > 3 ? ` +${step.matched_skills.length - 3}` : ""}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 
 // ─── Score Breakdown Card ─────────────────────────────────────────────────────
 function BreakdownCard({ breakdown }) {
   if (!breakdown) return null;
-  const items = Object.entries(breakdown).map(([key, val]) => ({
-    label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-    score: val.score,
-    weight: Math.round(val.weight * 100),
-  }));
+  const items = Object.entries(breakdown)
+    .sort((a,b) => b[1].weight - a[1].weight) // sort by weight descending
+    .map(([key, val]) => ({
+      label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      score: val.score,
+      weight: Math.round(val.weight * 100),
+    }));
+
   return (
-    <div style={{
-      background: "rgba(15,15,25,.95)", border: "1px solid rgba(255,255,255,.08)",
-      borderRadius: 16, padding: 24,
-    }}>
-      <h3 style={{ color: "#e2e8f0", margin: "0 0 16px", fontSize: 15, fontWeight: 700 }}>Score Breakdown</h3>
-      {items.map(({ label, score, weight }) => (
-        <div key={label} style={{ marginBottom: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-            <span style={{ color: "rgba(255,255,255,.7)", fontSize: 13 }}>{label}</span>
-            <span style={{ color: scoreColor(score), fontSize: 13, fontWeight: 700, fontFamily: "monospace" }}>
-              {score}% <span style={{ color: "rgba(255,255,255,.3)", fontWeight: 400 }}>× {weight}%</span>
-            </span>
-          </div>
-          <div style={{ background: "rgba(255,255,255,.06)", borderRadius: 999, height: 6, overflow: "hidden" }}>
-            <div style={{
-              width: `${score}%`, height: "100%",
-              background: scoreColor(score), borderRadius: 999,
-              transition: "width 1s ease",
-            }} />
-          </div>
-        </div>
-      ))}
-    </div>
+    <motion.div variants={itemVariants} className="glass-panel p-6">
+      <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+        <Target className="w-5 h-5 text-[var(--color-primary)]" />
+        Scoring Breakdown
+      </h3>
+      <div className="flex flex-col gap-5">
+        {items.map(({ label, score, weight }, i) => (
+          <motion.div key={label} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}>
+            <div className="flex justify-between items-end mb-2">
+              <span className="text-sm font-semibold text-white/80">{label}</span>
+              <span className="text-sm font-mono font-bold" style={{ color: scoreColor(score) }}>
+                {score}% <span className="text-white/30 font-medium text-xs ml-1">× {weight}% wt</span>
+              </span>
+            </div>
+            <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${score}%` }}
+                transition={{ duration: 1, delay: i * 0.1, ease: "easeOut" }}
+                className="h-full rounded-full"
+                style={{ background: scoreColor(score), boxShadow: `0 0 10px ${scoreColor(score)}` }} 
+              />
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </motion.div>
   );
 }
 
 // ─── Skills Panel ─────────────────────────────────────────────────────────────
 function SkillsPanel({ matched, missing }) {
   return (
-    <div style={{
-      background: "rgba(15,15,25,.95)", border: "1px solid rgba(255,255,255,.08)",
-      borderRadius: 16, padding: 24,
-    }}>
-      <h3 style={{ color: "#e2e8f0", margin: "0 0 16px", fontSize: 15, fontWeight: 700 }}>Skill Gap Analysis</h3>
+    <motion.div variants={itemVariants} className="glass-panel p-6">
+      <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+        <Zap className="w-5 h-5 text-[var(--color-primary)]" />
+        Skill Gap Analysis
+      </h3>
+      
       {matched?.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <p style={{ color: "#22c55e", fontSize: 12, margin: "0 0 8px", fontWeight: 600 }}>
-            ✓ Matched ({matched.length})
+        <div className="mb-6">
+          <p className="text-xs font-bold text-[#10b981] uppercase tracking-wider mb-3 flex items-center gap-1">
+            <CheckCircle className="w-4 h-4" /> Matched ({matched.length})
           </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {matched.map((s) => (
-              <span key={s} style={{
-                background: "rgba(34,197,94,.12)", border: "1px solid rgba(34,197,94,.3)",
-                color: "#4ade80", borderRadius: 8, padding: "3px 10px", fontSize: 12,
-              }}>{s}</span>
+          <div className="flex flex-wrap gap-2">
+            {matched.map((s, i) => (
+              <motion.span 
+                initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.03 }}
+                key={s} 
+                className="px-3 py-1.5 bg-[#10b981]/10 border border-[#10b981]/30 text-[#10b981] rounded-lg text-xs font-semibold shadow-[0_0_10px_rgba(16,185,129,0.1)]"
+              >
+                {s}
+              </motion.span>
             ))}
           </div>
         </div>
       )}
+      
       {missing?.length > 0 && (
         <div>
-          <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 8px", fontWeight: 600 }}>
-            ✗ Missing ({missing.length})
+          <p className="text-xs font-bold text-[#ef4444] uppercase tracking-wider mb-3 flex items-center gap-1">
+            <AlertCircle className="w-4 h-4" /> Missing ({missing.length})
           </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {missing.map((s) => (
-              <span key={s} style={{
-                background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)",
-                color: "#f87171", borderRadius: 8, padding: "3px 10px", fontSize: 12,
-              }}>{s}</span>
+          <div className="flex flex-wrap gap-2">
+            {missing.map((s, i) => (
+              <motion.span 
+                initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: (matched?.length || 0)*0.03 + i * 0.03 }}
+                key={s} 
+                className="px-3 py-1.5 bg-[#ef4444]/10 border border-[#ef4444]/30 text-[#ef4444] rounded-lg text-xs font-semibold shadow-[0_0_10px_rgba(239,68,68,0.1)]"
+              >
+                {s}
+              </motion.span>
             ))}
           </div>
         </div>
       )}
+      
       {!matched?.length && !missing?.length && (
-        <p style={{ color: "rgba(255,255,255,.35)", fontSize: 13 }}>No JD provided — skill gap analysis unavailable.</p>
+        <div className="p-8 text-center border border-dashed border-white/10 rounded-2xl bg-white/5">
+          <FileSearch className="w-8 h-8 text-white/20 mx-auto mb-3" />
+          <p className="text-sm font-medium text-white/50">No Job Description provided.</p>
+          <p className="text-xs text-white/30 mt-1">Skill gap analysis is unavailable without a target JD.</p>
+        </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 
 // ─── Details chips ────────────────────────────────────────────────────────────
-function DetailChip({ label, value, ok }) {
-  const col = ok ? "#34d399" : "#f87171";
+function DetailChip({ label, value, ok, icon: Icon }) {
+  const col = ok ? "#10b981" : "#ef4444";
   return (
-    <div style={{
-      background: ok ? "rgba(52,211,153,.08)" : "rgba(248,113,113,.08)",
-      border: `1px solid ${ok ? "rgba(52,211,153,.25)" : "rgba(248,113,113,.25)"}`,
-      borderRadius: 10, padding: "8px 14px",
-    }}>
-      <div style={{ color: col, fontSize: 13, fontWeight: 600 }}>{value}</div>
-      <div style={{ color: "rgba(255,255,255,.4)", fontSize: 11 }}>{label}</div>
+    <div className={`flex flex-col items-start p-3.5 rounded-2xl border transition-all hover:-translate-y-1 ${ok ? "bg-[#10b981]/10 border-[#10b981]/20 hover:shadow-[0_4px_20px_rgba(16,185,129,0.15)]" : "bg-[#ef4444]/10 border-[#ef4444]/20 hover:shadow-[0_4px_20px_rgba(239,68,68,0.15)]"}`}>
+      <div className="flex items-center gap-2 mb-1" style={{ color: col }}>
+        {Icon ? <Icon className="w-4 h-4" /> : (ok ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />)}
+        <span className="text-sm font-bold tracking-tight">{value}</span>
+      </div>
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-white/50">{label}</span>
     </div>
   );
 }
@@ -325,6 +550,7 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState("score");
   const [pdfFile, setPdfFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   const fileRef = useRef();
 
   // ── PDF extraction via PDF.js (client-side) ──────────────────────────────
@@ -342,7 +568,6 @@ export default function Dashboard() {
       }
       return text;
     } catch {
-      // Fallback: send raw PDF to server
       return null;
     }
   };
@@ -354,6 +579,20 @@ export default function Dashboard() {
     setError("");
     const text = await extractPdfText(file);
     if (text) setResumeText(text);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type === "application/pdf") {
+      setPdfFile(file);
+      setError("");
+      const text = await extractPdfText(file);
+      if (text) setResumeText(text);
+    } else {
+      setError("Please drop a valid PDF file.");
+    }
   };
 
   // ── Run Analysis ──────────────────────────────────────────────────────────
@@ -368,9 +607,7 @@ export default function Dashboard() {
 
     try {
       let data;
-
       if (pdfFile && !resumeText) {
-        // Server-side PDF extraction + analysis
         const form = new FormData();
         form.append("resume", pdfFile);
         form.append("jd_text", jdText);
@@ -379,7 +616,6 @@ export default function Dashboard() {
         data = await res.json();
         if (data.resume_text) setResumeText(data.resume_text);
       } else {
-        // Client already has text
         const res = await fetch(`${NLP_ENGINE}/analyze`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -388,7 +624,6 @@ export default function Dashboard() {
         if (!res.ok) throw new Error(await res.text());
         data = await res.json();
       }
-
       setResult(data);
       setTab("score");
     } catch (err) {
@@ -399,318 +634,401 @@ export default function Dashboard() {
   };
 
   // ── Derived values ────────────────────────────────────────────────────────
-  const score     = result?.score ?? 0;
-  const composite = result?.search?.composite_score ?? {};
-  const search    = result?.search ?? {};
-  const bestMatch = search?.best_match ?? {};
-  const details   = composite?.details ?? {};
-  const fmt       = details?.formatting ?? {};
-  const av        = details?.action_verbs ?? {};
-  const qa        = details?.achievements ?? {};
-  const st        = details?.structure ?? {};
-  const ed        = details?.education ?? {};
+  const score      = result?.score ?? 0;
+  const composite  = result?.search?.composite_score ?? {};
+  const search     = result?.search ?? {};
+  const bestMatch  = search?.best_match ?? {};
+  const details    = composite?.details ?? {};
+  const fmt        = details?.formatting ?? {};
+  const av         = details?.action_verbs ?? {};
+  const qa         = details?.achievements ?? {};
+  const st         = details?.structure ?? {};
+  const ed         = details?.education ?? {};
+  // Structured report fields from backend
+  const verdict    = result?.verdict ?? "";
+  const strengths  = result?.strengths ?? [];
+  const reportGaps = result?.gaps ?? [];
+  const suggestions = result?.suggestions ?? [];
 
   const TABS = [
-    { id: "score",    label: "Score" },
-    { id: "search",   label: "🔍 Search Trace" },
-    { id: "skills",   label: "Skills" },
-    { id: "keywords", label: "Keywords" },
-    { id: "tips",     label: "Tips" },
+    { id: "score",    label: "Score", icon: Target },
+    { id: "search",   label: "Search Trace", icon: Activity },
+    { id: "skills",   label: "Skills Matrix", icon: Zap },
+    { id: "keywords", label: "Keywords", icon: FileSearch },
+    { id: "tips",     label: "Insights", icon: Lightbulb },
   ];
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #0a0a14 0%, #0d0d1e 50%, #0a0a14 100%)",
-      color: "#e2e8f0",
-      fontFamily: "'Inter', sans-serif",
-      padding: "32px 24px",
-    }}>
-      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-
-        {/* Header */}
-        <div style={{ marginBottom: 32, textAlign: "center" }}>
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 10,
-            background: "rgba(139,92,246,.1)", border: "1px solid rgba(139,92,246,.3)",
-            borderRadius: 999, padding: "6px 18px", marginBottom: 16,
-          }}>
-            <span style={{ color: "#a78bfa", fontSize: 12, fontFamily: "monospace" }}>
-              ALGORITHM: BEST-FIRST SEARCH
-            </span>
-          </div>
-          <h1 style={{
-            fontSize: 36, fontWeight: 800, margin: 0,
-            background: "linear-gradient(90deg, #a78bfa, #60a5fa, #34d399)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-          }}>
-            TalentLens
-          </h1>
-          <p style={{ color: "rgba(255,255,255,.45)", fontSize: 14, marginTop: 6 }}>
-            Heuristic-Powered ATS Resume Analyzer
-          </p>
-        </div>
+    <div className="w-full relative py-6">
+      <div className="max-w-5xl mx-auto space-y-6">
 
         {/* Input Section */}
-        <div style={{
-          background: "rgba(15,15,25,.95)", border: "1px solid rgba(255,255,255,.08)",
-          borderRadius: 20, padding: 28, marginBottom: 24,
-        }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            {/* Resume Input */}
-            <div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <label style={{ color: "rgba(255,255,255,.7)", fontSize: 13, fontWeight: 600 }}>
-                  Resume
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          className="glass-panel p-8"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            
+            {/* Resume Input Area */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-bold text-white flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-[var(--color-primary)]" /> Target Resume
                 </label>
-                <button
-                  onClick={() => fileRef.current?.click()}
-                  style={{
-                    background: "rgba(139,92,246,.15)", border: "1px solid rgba(139,92,246,.3)",
-                    color: "#a78bfa", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontSize: 12,
-                  }}
-                >
-                  Upload PDF
-                </button>
+                {pdfFile && (
+                  <span className="text-[10px] bg-[var(--color-primary)]/20 text-[var(--color-primary)] px-2 py-1 rounded font-mono truncate max-w-[150px]">
+                    {pdfFile.name}
+                  </span>
+                )}
               </div>
-              <input type="file" accept=".pdf" ref={fileRef} onChange={handleFileChange} style={{ display: "none" }} />
-              {pdfFile && (
-                <div style={{
-                  background: "rgba(139,92,246,.08)", border: "1px solid rgba(139,92,246,.25)",
-                  borderRadius: 8, padding: "6px 12px", marginBottom: 8, fontSize: 12, color: "#a78bfa",
-                }}>
-                  📄 {pdfFile.name}
-                </div>
-              )}
-              <textarea
-                value={resumeText}
-                onChange={(e) => setResumeText(e.target.value)}
-                placeholder="Paste resume text here, or upload a PDF above…"
-                rows={10}
-                style={{
-                  width: "100%", background: "rgba(255,255,255,.04)",
-                  border: "1px solid rgba(255,255,255,.1)", borderRadius: 12,
-                  color: "#e2e8f0", fontSize: 13, padding: 14, resize: "vertical",
-                  outline: "none", boxSizing: "border-box",
-                  fontFamily: "'Inter', sans-serif",
-                }}
-              />
+              
+              <div 
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                className={`w-full relative rounded-2xl overflow-hidden transition-all duration-300 ${isDragging ? "ring-2 ring-[var(--color-primary)] scale-[1.02]" : ""}`}
+              >
+                <textarea
+                  value={resumeText}
+                  onChange={(e) => setResumeText(e.target.value)}
+                  placeholder="Paste raw resume text, or drop a PDF here..."
+                  className="w-full h-[240px] glass-input p-5 text-sm resize-none rounded-2xl font-mono leading-relaxed placeholder:text-white/20 custom-scrollbar relative z-10"
+                />
+                
+                {/* Visual drop overlay when empty */}
+                {!resumeText && !pdfFile && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20">
+                    <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3">
+                      <Upload className="w-5 h-5 text-white/30" />
+                    </div>
+                    <span className="text-xs font-semibold text-white/30 uppercase tracking-widest">
+                      Drag & Drop PDF
+                    </span>
+                  </div>
+                )}
+              </div>
+              
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="w-full py-2.5 mt-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-semibold text-white/70 transition-colors flex items-center justify-center gap-2"
+              >
+                <Upload className="w-3.5 h-3.5" /> Upload PDF Instead
+              </button>
+              <input type="file" accept=".pdf" ref={fileRef} onChange={handleFileChange} className="hidden" />
             </div>
 
-            {/* JD Input */}
-            <div>
-              <label style={{ display: "block", color: "rgba(255,255,255,.7)", fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
-                Job Description <span style={{ color: "rgba(255,255,255,.3)", fontWeight: 400 }}>(optional)</span>
+            {/* JD Input Area */}
+            <div className="flex flex-col gap-3">
+              <label className="text-sm font-bold text-white flex items-center gap-2">
+                <Target className="w-4 h-4 text-[var(--color-secondary)]" /> Job Description
+                <span className="text-[10px] font-normal uppercase text-white/30 ml-2 bg-white/5 px-2 py-0.5 rounded">Optional</span>
               </label>
-              <textarea
-                value={jdText}
-                onChange={(e) => setJdText(e.target.value)}
-                placeholder="Paste the job description here for targeted matching…"
-                rows={10}
-                style={{
-                  width: "100%", background: "rgba(255,255,255,.04)",
-                  border: "1px solid rgba(255,255,255,.1)", borderRadius: 12,
-                  color: "#e2e8f0", fontSize: 13, padding: 14, resize: "vertical",
-                  outline: "none", boxSizing: "border-box", marginTop: 0,
-                  fontFamily: "'Inter', sans-serif",
-                }}
-              />
+              
+              <div className="w-full relative rounded-2xl overflow-hidden">
+                <textarea
+                  value={jdText}
+                  onChange={(e) => setJdText(e.target.value)}
+                  placeholder="Paste the target job description to enable comprehensive skill gap analysis..."
+                  className="w-full h-[240px] glass-input p-5 text-sm resize-none rounded-2xl font-mono leading-relaxed placeholder:text-white/20 custom-scrollbar"
+                />
+              </div>
             </div>
+            
           </div>
 
           {error && (
-            <div style={{
-              background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.3)",
-              borderRadius: 10, padding: "10px 16px", marginTop: 12, color: "#f87171", fontSize: 13,
-            }}>
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-500/90 text-sm font-medium">
+              <ShieldAlert className="w-4 h-4 shrink-0" />
               {error}
-            </div>
+            </motion.div>
           )}
 
+          {/* Action Button */}
           <button
             onClick={analyze}
             disabled={loading}
-            style={{
-              marginTop: 20, width: "100%", padding: "14px 0",
-              background: loading ? "rgba(139,92,246,.3)" : "linear-gradient(135deg, #7c3aed, #4f46e5)",
-              border: "none", borderRadius: 12, color: "#fff",
-              fontSize: 15, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer",
-              transition: "opacity .2s",
-              boxShadow: loading ? "none" : "0 4px 24px rgba(124,58,237,.4)",
-            }}
+            className={`mt-6 w-full py-4 rounded-xl text-[15px] font-bold text-white transition-all flex items-center justify-center gap-3 relative overflow-hidden group ${
+              loading 
+              ? "bg-white/5 border border-white/10 cursor-not-allowed" 
+              : "bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)] shadow-[0_10px_30px_rgba(139,92,246,0.3)] hover:-translate-y-1 hover:shadow-[0_15px_40px_rgba(139,92,246,0.5)]"
+            }`}
           >
-            {loading ? "Running Best-First Search…" : "Analyze Resume"}
-          </button>
-        </div>
-
-        {/* Results */}
-        {result && (
-          <div>
-            {/* Score Hero */}
-            <div style={{
-              background: "rgba(15,15,25,.95)", border: `1px solid ${scoreColor(score)}40`,
-              borderRadius: 20, padding: 28, marginBottom: 20,
-              display: "flex", alignItems: "center", gap: 32, flexWrap: "wrap",
-            }}>
-              <ScoreRing score={score} />
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: 28, fontWeight: 800, color: scoreColor(score), marginBottom: 4 }}>
-                  <AnimatedNumber value={score} suffix="%" />
-                </div>
-                <div style={{ color: scoreColor(score), fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-                  {scoreLabel(score)}
-                </div>
-                <div style={{ color: "rgba(255,255,255,.45)", fontSize: 13, maxWidth: 400 }}>
-                  Best-First Search explored <strong style={{ color: "#a78bfa" }}>{search.stats?.nodes_explored}</strong> nodes,
-                  matched <strong style={{ color: "#34d399" }}>{bestMatch.match_rate}%</strong> of JD skills
-                  {composite.penalty > 0 && (
-                    <span style={{ color: "#f87171" }}> (−{composite.penalty}% stuffing penalty)</span>
-                  )}
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <DetailChip label="Email" value={fmt.has_email ? "✓ Found" : "✗ Missing"} ok={fmt.has_email} />
-                <DetailChip label="Phone" value={fmt.has_phone ? "✓ Found" : "✗ Missing"} ok={fmt.has_phone} />
-                <DetailChip label="Action Verbs" value={av.count ?? 0} ok={av.count >= 5} />
-                <DetailChip label="Achievements" value={qa.achievement_count ?? 0} ok={qa.achievement_count >= 3} />
-              </div>
-            </div>
-
-            {/* Tabs */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-              {TABS.map(({ id, label }) => (
-                <button
-                  key={id}
-                  onClick={() => setTab(id)}
-                  style={{
-                    padding: "8px 18px", borderRadius: 10, cursor: "pointer",
-                    fontSize: 13, fontWeight: 600, border: "none",
-                    background: tab === id ? "rgba(139,92,246,.25)" : "rgba(255,255,255,.05)",
-                    color: tab === id ? "#a78bfa" : "rgba(255,255,255,.5)",
-                    outline: tab === id ? "1px solid rgba(139,92,246,.4)" : "none",
-                    transition: "all .15s",
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Tab Content */}
-            {tab === "score" && (
+            {loading ? (
               <>
-                <BreakdownCard breakdown={composite.breakdown} />
-
-                {result?.explanationText && (
-                  <div style={{
-                    background: "rgba(15,15,25,.95)",
-                    border: "1px solid rgba(139,92,246,.3)",
-                    borderRadius: 16,
-                    padding: 20,
-                    marginTop: 20
-                  }}>
-                    <h3 style={{
-                      color: "#a78bfa",
-                      marginBottom: 10,
-                      fontSize: 15,
-                      fontWeight: 700
-                  }}>
-                    AI Explanation
-                  </h3>
-
-                   <p style={{
-                    whiteSpace: "pre-line",
-                    color: "rgba(255,255,255,.7)",
-                    fontSize: 13,
-                    lineHeight: 1.6
-                  }}>
-                    {result.explanationText}
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-            {tab === "search"  && (
-              <SearchTracePanel
-                trace={search.search_trace}
-                stats={search.stats}
-                allNodes={search.all_nodes}
-              />
+                <div className="animate-shimmer absolute inset-0"></div>
+                <Sparkles className="w-5 h-5 animate-spin relative z-10 text-[var(--color-primary)]" />
+                <span className="relative z-10 text-white/70">Agentic Engine Searching...</span>
+              </>
+            ) : (
+              <>
+                <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <Cpu className="w-5 h-5" /> Execute Agentic Scan
+              </>
             )}
-            {tab === "skills"  && (
-              <SkillsPanel
-                matched={bestMatch.matched_skills}
-                missing={bestMatch.missing_skills}
-              />
-            )}
-            {tab === "keywords" && (
-              <div style={{
-                background: "rgba(15,15,25,.95)", border: "1px solid rgba(255,255,255,.08)",
-                borderRadius: 16, padding: 24,
-              }}>
-                <h3 style={{ color: "#e2e8f0", margin: "0 0 16px", fontSize: 15, fontWeight: 700 }}>Keyword Match</h3>
-                {details?.keyword?.matched_keywords?.length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <p style={{ color: "#22c55e", fontSize: 12, margin: "0 0 8px" }}>Matched Keywords</p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {details.keyword.matched_keywords.map((k) => (
-                        <span key={k} style={{
-                          background: "rgba(34,197,94,.1)", border: "1px solid rgba(34,197,94,.25)",
-                          color: "#4ade80", borderRadius: 8, padding: "3px 10px", fontSize: 12,
-                        }}>{k}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {details?.keyword?.missing_keywords?.length > 0 && (
+          </button>
+        </motion.div>
+
+        {/* Results Section */}
+        {result && (
+          <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6 pb-20">
+            
+            {/* Score Hero Panel */}
+            <motion.div variants={itemVariants} className="glass-panel-active p-8 relative overflow-hidden group">
+              <div className="absolute -right-20 -top-20 w-64 h-64 bg-[var(--color-primary)]/10 rounded-full blur-[80px] pointer-events-none group-hover:bg-[var(--color-primary)]/20 transition-colors duration-1000"></div>
+              
+              <div className="flex flex-col md:flex-row items-center gap-10 relative z-10">
+                <ScoreRing score={score} />
+                
+                <div className="flex-1 text-center md:text-left space-y-4">
                   <div>
-                    <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 8px" }}>Missing Keywords</p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {details.keyword.missing_keywords.map((k) => (
-                        <span key={k} style={{
-                          background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.2)",
-                          color: "#f87171", borderRadius: 8, padding: "3px 10px", fontSize: 12,
-                        }}>{k}</span>
-                      ))}
-                    </div>
+                    <h2 className="text-3xl font-black mb-1" style={{ color: scoreColor(score) }}>
+                      {scoreLabel(score)}
+                    </h2>
+                    <p className="text-sm text-white/60 font-medium">
+                      Agentic search explored <span className="text-[var(--color-primary)] font-bold">{search.stats?.nodes_explored}</span> nodes to find <span className="text-[#10b981] font-bold">{bestMatch.matched_skills?.length || 0}</span> matching JD skills.
+                      {composite.penalty > 0 && <span className="text-[#ef4444] ml-1">(−{composite.penalty}% penalty)</span>}
+                    </p>
                   </div>
-                )}
-                <div style={{ marginTop: 16, color: "rgba(255,255,255,.4)", fontSize: 12 }}>
-                  Cosine similarity: {result?.similarity?.cosine_score ?? "—"} ·
-                  Matched terms: {result?.similarity?.matched_terms?.join(", ")}
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4 border-t border-white/5">
+                    <DetailChip label="Email ID" value="Found" ok={fmt.has_email} />
+                    <DetailChip label="Phone No" value="Found" ok={fmt.has_phone} />
+                    <DetailChip label="Action Verbs" value={av.count ?? 0} ok={av.count >= 5} icon={Activity} />
+                    <DetailChip label="Core Metrics" value={qa.achievement_count ?? 0} ok={qa.achievement_count >= 3} icon={Award} />
+                  </div>
                 </div>
               </div>
-            )}
-            {tab === "tips" && (
-              <div style={{
-                background: "rgba(15,15,25,.95)", border: "1px solid rgba(255,255,255,.08)",
-                borderRadius: 16, padding: 24,
-              }}>
-                <h3 style={{ color: "#e2e8f0", margin: "0 0 16px", fontSize: 15, fontWeight: 700 }}>
-                  Improvement Tips
-                </h3>
-                {[
-                  !fmt.has_email && "Add a professional email address.",
-                  !fmt.has_phone && "Include a phone number.",
-                  !fmt.has_linkedin && "Add your LinkedIn profile URL.",
-                  (av.count ?? 0) < 5 && `Use more action verbs (found ${av.count ?? 0}, target ≥5): built, developed, optimized…`,
-                  (qa.achievement_count ?? 0) < 3 && "Add quantified achievements (%, $, ×) to demonstrate impact.",
-                  bestMatch.missing_skills?.length > 0 && `Add missing skills to resume: ${bestMatch.missing_skills?.slice(0, 5).join(", ")}.`,
-                  details?.stuffing?.stuffed && "Reduce keyword repetition — stuffing penalty applied.",
-                  st.missing_sections?.includes("summary") && "Add a professional summary section.",
-                  st.missing_sections?.includes("projects") && "Add a Projects section to showcase work.",
-                ].filter(Boolean).map((tip, i) => (
-                  <div key={i} style={{
-                    display: "flex", gap: 10, alignItems: "flex-start",
-                    padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.05)",
-                  }}>
-                    <span style={{ color: "#f59e0b", fontSize: 14, marginTop: 1 }}>⚡</span>
-                    <span style={{ color: "rgba(255,255,255,.7)", fontSize: 13 }}>{tip}</span>
+            </motion.div>
+
+            {/* Smart Navigation Tabs */}
+            <div className="flex flex-wrap gap-2 p-1.5 bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 w-fit">
+              {TABS.map((t) => {
+                const isActive = tab === t.id;
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`relative px-5 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 focus:outline-none ${
+                      isActive ? "text-white" : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                    }`}
+                  >
+                    {isActive && (
+                      <motion.div 
+                        layoutId="activeTab"
+                        className="absolute inset-0 bg-[var(--color-primary)]/20 border border-[var(--color-primary)]/30 rounded-xl overflow-hidden" 
+                      />
+                    )}
+                    <Icon className="w-4 h-4 relative z-10" />
+                    <span className="relative z-10">{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tab Views */}
+            <AnimatePresence mode="wait">
+              <motion.div 
+                key={tab}
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                exit="hidden"
+              >
+                {tab === "score" && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <BreakdownCard breakdown={composite.breakdown} />
+                    
+                    {/* Structured Analysis Report */}
+                    <motion.div variants={itemVariants} className="glass-panel p-6">
+                      <h3 className="text-lg font-bold text-white mb-5 flex items-center gap-2">
+                        <Cpu className="w-5 h-5 text-[var(--color-primary)]" />
+                        Analysis Report
+                      </h3>
+
+                      {/* Verdict badge */}
+                      {verdict && (
+                        <div
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold mb-5 border"
+                          style={{
+                            color: scoreColor(score),
+                            background: `${scoreColor(score)}18`,
+                            borderColor: `${scoreColor(score)}40`,
+                          }}
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          {verdict} — {score}%
+                        </div>
+                      )}
+
+                      {/* Strengths */}
+                      {strengths.length > 0 && (
+                        <div className="mb-5">
+                          <p className="text-[10px] font-bold text-[#10b981] uppercase tracking-widest mb-2 flex items-center gap-1">
+                            <CheckCircle className="w-3.5 h-3.5" /> Strengths
+                          </p>
+                          <div className="flex flex-col gap-2">
+                            {strengths.map((s, i) => (
+                              <motion.div
+                                key={i}
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: i * 0.08 }}
+                                className="flex items-center gap-2 text-sm text-white/80"
+                              >
+                                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-[#10b981]/20 text-[#10b981] text-xs font-bold shrink-0">✓</span>
+                                {s}
+                              </motion.div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Critical Gaps */}
+                      {reportGaps.length > 0 && (
+                        <div className="mb-5">
+                          <p className="text-[10px] font-bold text-[#ef4444] uppercase tracking-widest mb-2 flex items-center gap-1">
+                            <AlertCircle className="w-3.5 h-3.5" /> Critical Gaps
+                          </p>
+                          <div className="flex flex-col gap-2">
+                            {reportGaps.map((g, i) => (
+                              <motion.div
+                                key={i}
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: i * 0.08 }}
+                                className="flex items-center gap-2 text-sm text-white/70"
+                              >
+                                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-[#ef4444]/20 text-[#ef4444] text-xs font-bold shrink-0">✗</span>
+                                {g}
+                              </motion.div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Recommendations */}
+                      {suggestions.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold text-[var(--color-warning)] uppercase tracking-widest mb-2 flex items-center gap-1">
+                            <Lightbulb className="w-3.5 h-3.5" /> Recommendations
+                          </p>
+                          <div className="flex flex-col gap-2">
+                            {suggestions.map((tip, i) => (
+                              <motion.div
+                                key={i}
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: i * 0.06 }}
+                                className="flex gap-2 items-start text-xs text-white/65 leading-relaxed"
+                              >
+                                <span className="shrink-0 mt-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-[var(--color-warning)]/15 text-[var(--color-warning)] text-[10px] font-bold">{i + 1}</span>
+                                {tip}
+                              </motion.div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Fallback: raw text if no structured data */}
+                      {!verdict && result?.explanationText && (
+                        <div className="bg-white/5 p-4 rounded-xl border border-white/5 font-mono text-xs text-white/60 leading-relaxed">
+                          {result.explanationText}
+                        </div>
+                      )}
+                    </motion.div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                )}
+
+                {tab === "search" && (
+                  <SearchTracePanel trace={search.search_trace} stats={search.stats} allNodes={search.all_nodes} />
+                )}
+
+                {tab === "skills" && (
+                  <SkillsPanel matched={bestMatch.matched_skills} missing={bestMatch.missing_skills} />
+                )}
+
+                {tab === "keywords" && (
+                  <motion.div variants={itemVariants} className="glass-panel p-6">
+                    <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                      <FileSearch className="w-5 h-5 text-[var(--color-primary)]" /> Contextual Keywords
+                    </h3>
+                    
+                    {details?.keyword?.matched_keywords?.length > 0 && (
+                      <div className="mb-6">
+                        <p className="text-xs font-bold text-[#10b981] uppercase tracking-wider mb-3 flex items-center gap-1">
+                          <CheckCircle className="w-4 h-4" /> Matched Context
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {details.keyword.matched_keywords.map((k) => (
+                            <span key={k} className="px-3 py-1.5 bg-white/5 border border-white/10 text-white/80 rounded-lg text-xs font-mono">{k}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {details?.keyword?.missing_keywords?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-white/50 uppercase tracking-wider mb-3 flex items-center gap-1">
+                          <Target className="w-4 h-4" /> Target Keywords
+                        </p>
+                        <div className="flex flex-wrap gap-2 cursor-pointer">
+                          {details.keyword.missing_keywords.map((k) => (
+                            <span key={k} className="px-3 py-1.5 bg-white/5 border border-dashed border-white/10 text-white/40 rounded-lg text-xs font-mono hover:bg-white/10">{k}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="mt-8 pt-4 border-t border-white/5 flex items-center flex-wrap gap-4 text-xs font-mono text-white/40">
+                      <div className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg border border-white/5">
+                        <Activity className="w-3 h-3 text-[var(--color-primary)]" />
+                        Cosine Diff: <span className="text-white/80 font-bold">{result?.similarity?.cosine_score ?? "—"}</span>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {tab === "tips" && (
+                  <motion.div variants={itemVariants} className="glass-panel p-6">
+                    <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                      <Lightbulb className="w-5 h-5 text-[var(--color-warning)]" /> Actionable Insights
+                    </h3>
+                    <div className="grid gap-3">
+                      {[
+                        !fmt.has_email && "Resume requires a professional email address.",
+                        !fmt.has_phone && "Include a direct contact phone number.",
+                        !fmt.has_linkedin && "Add your LinkedIn profile URL to boost visibility.",
+                        (av.count ?? 0) < 5 && `Increase verb density: Use strong action verbs (found ${av.count ?? 0}/5). e.g., 'Implemented', 'Led'.`,
+                        (qa.achievement_count ?? 0) < 3 && "Quantify achievements with metrics (%, $, x) to demonstrate measurable impact.",
+                        bestMatch.missing_skills?.length > 0 && `High Priority Gap: Integrate skills like ${bestMatch.missing_skills?.slice(0, 3).join(", ")}.`,
+                        details?.stuffing?.stuffed && "Warning: Detected unnatural keyword density. Reduce repetition to avoid ATS down-ranking.",
+                        st.missing_sections?.includes("summary") && "Include a professional summary outlining your core value proposition.",
+                        st.missing_sections?.includes("projects") && "Highlight practical experience lacking an explicit Projects/Portfolio section.",
+                      ].filter(Boolean).map((tip, i) => (
+                        <motion.div 
+                          initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
+                          key={i} 
+                          className="flex gap-3 items-start p-4 bg-[var(--color-warning)]/5 border border-[var(--color-warning)]/20 rounded-xl"
+                        >
+                          <Lightbulb className="w-4 h-4 text-[var(--color-warning)] shrink-0 mt-0.5" />
+                          <span className="text-sm font-medium text-white/80">{tip}</span>
+                        </motion.div>
+                      ))}
+                      {/* Placeholder if perfect */}
+                      {([!fmt.has_email, !fmt.has_phone, !fmt.has_linkedin, (av.count ?? 0) < 5, (qa.achievement_count ?? 0) < 3, bestMatch.missing_skills?.length > 0, details?.stuffing?.stuffed, st.missing_sections?.includes("summary"), st.missing_sections?.includes("projects")].filter(Boolean).length === 0) && (
+                        <div className="p-6 text-center text-white/50 border border-dashed border-white/10 rounded-xl">
+                          <CheckCircle className="w-8 h-8 text-[#10b981] mx-auto mb-2 opacity-50" />
+                          Resume formatting appears highly optimized for ATS parsers.
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </motion.div>
+            </AnimatePresence>
+            
+          </motion.div>
         )}
       </div>
     </div>
